@@ -33,10 +33,11 @@ const validateTransaction = (req, res, next) => {
     // [MODIFIKASI] Ambil category_name
     const { amount, month, year, category_name } = req.body;
   
-    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+    // [MODIFIKASI] Izinkan amount 0 (untuk reset)
+    if (amount === null || amount === undefined || isNaN(amount) || parseFloat(amount) < 0) {
       return res.status(400).json({
         success: false,
-        error: 'Valid amount is required'
+        error: 'Valid amount is required (must be 0 or greater)'
       });
     }
   

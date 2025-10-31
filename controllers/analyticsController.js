@@ -43,15 +43,14 @@ const getMonthlySummary = async (req, res) => {
         return acc;
       }, {});
 
-    // === [PERBAIKAN DI SINI] ===
-    // Get SEMUA budget items untuk bulan ini
+    // === [BLOK BUDGET DIMODIFIKASI] ===
+    // Ambil SEMUA budget items untuk bulan ini
     const { data: budgetDetails, error: budgetError } = await supabase
       .from('budgets')
-      .select('id, category_name, amount') // <-- TAMBAHKAN 'id' DI SINI
+      .select('id, category_name, amount') // [MODIFIKASI] Ambil 'id'
       .eq('user_id', req.user.id)
       .eq('month', parseInt(currentMonth))
       .eq('year', parseInt(currentYear));
-    // === [AKHIR PERBAIKAN] ===
 
     if (budgetError) {
       return res.status(500).json({
@@ -65,6 +64,8 @@ const getMonthlySummary = async (req, res) => {
       ? budgetDetails.reduce((sum, b) => sum + parseFloat(b.amount), 0)
       : 0;
     
+    // === [AKHIR MODIFIKASI BLOK BUDGET] ===
+
     res.json({
       success: true,
       data: {
@@ -80,11 +81,12 @@ const getMonthlySummary = async (req, res) => {
           income_count: transactions.filter(t => t.type === 'income').length,
           expense_count: transactions.filter(t => t.type === 'expense').length
         },
+        // [MODIFIKASI] Kirim struktur budget baru
         budget: {
-          total_amount: totalBudget, 
+          total_amount: totalBudget, // Total dari semua sub-budget
           spent: totalExpenses,
           remaining: totalBudget - totalExpenses,
-          details: budgetDetails || [] 
+          details: budgetDetails || [] // Kirim detail sub-budget ke frontend
         },
         expenses_by_category: expensesByCategory
       }

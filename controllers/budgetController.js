@@ -4,7 +4,6 @@ const supabase = require('../config/database');
 const getBudgets = async (req, res) => {
   try {
     const { month, year } = req.query;
-    
     let query = supabase
       .from('budgets')
       .select('*')
@@ -13,48 +12,44 @@ const getBudgets = async (req, res) => {
     if (month && year) {
       query = query.eq('month', parseInt(month)).eq('year', parseInt(year));
     }
-
     const { data: budgets, error } = await query;
-
     if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      return res.status(500).json({ success: false, error: error.message });
     }
-
-    res.json({
-      success: true,
-      data: budgets
-    });
+    res.json({ success: true, data: budgets });
   } catch (error) {
     console.error('Budgets fetch error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
-// createOrUpdateBudget (Tidak berubah)
+// === [FUNGSI CREATE/UPDATE DIMODIFIKASI] ===
 const createOrUpdateBudget = async (req, res) => {
   try {
     const { amount, month, year, category_name } = req.body;
 
-    // Cek apakah budget untuk KATEGORI INI sudah ada
     const { data: existingBudget } = await supabase
       .from('budgets')
       .select('id')
       .eq('user_id', req.user.id)
       .eq('month', parseInt(month))
       .eq('year', parseInt(year))
-      .eq('category_name', category_name) 
+      .eq('category_name', category_name)
       .single();
 
     let result;
     
-    if (existingBudget) {
-      // JIKA SUDAH ADA: UPDATE
+    // [MODIFIKASI] Jika amount 0, kita hapus saja budgetnya
+    // Ini menangani "reset value budget"
+    if (existingBudget && parseFloat(amount) === 0) {
+      result = await supabase
+        .from('budgets')
+        .delete()
+        .eq('id', existingBudget.id)
+        .select()
+        .single();
+    } else if (existingBudget) {
+      // JIKA SUDAH ADA & amount > 0: UPDATE
       result = await supabase
         .from('budgets')
         .update({
@@ -64,8 +59,8 @@ const createOrUpdateBudget = async (req, res) => {
         .eq('id', existingBudget.id)
         .select()
         .single();
-    } else {
-      // JIKA BELUM ADA: INSERT
+    } else if (!existingBudget && parseFloat(amount) > 0) {
+      // JIKA BELUM ADA & amount > 0: INSERT
       result = await supabase
         .from('budgets')
         .insert([
@@ -74,18 +69,22 @@ const createOrUpdateBudget = async (req, res) => {
             amount: parseFloat(amount),
             month: parseInt(month),
             year: parseInt(year),
-            category_name: category_name 
+            category_name: category_name
           }
         ])
         .select()
         .single();
+    } else {
+      // Kasus: Buat budget baru dengan amount 0, tidak perlu_
+      return res.status(200).json({
+        success: true,
+        message: 'Budget set to 0, no entry created.',
+        data: null
+      });
     }
 
     if (result.error) {
-      return res.status(500).json({
-        success: false,
-        error: result.error.message
-      });
+      return res.status(500).json({ success: false, error: result.error.message });
     }
 
     res.status(existingBudget ? 200 : 201).json({
@@ -95,46 +94,68 @@ const createOrUpdateBudget = async (req, res) => {
     });
   } catch (error) {
     console.error('Budget creation error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
-// === [FUNGSI BARU DITAMBAHKAN] ===
+// === [FUNGSI DELETE DIMODIFIKASI TOTAL] ===
 const deleteBudget = async (req, res) => {
   try {
-    const { id } = req.params; // Ambil ID budget dari URL
+    const { id } = req.params; // ID dari budget
 
-    // Hapus budget HANYA JIKA ID-nya cocok DAN user_id-nya cocok
-    const { data, error } = await supabase
+    // 1. Ambil detail budget untuk tahu apa yang harus dihapus
+    const { data: budget, error: findError } = await supabase
       .from('budgets')
-      .delete()
+      .select('id, user_id, category_name, month, year')
       .eq('id', id)
-      .eq('user_id', req.user.id) // Paling penting!
-      .select()
+      .eq('user_id', req.user.id)
       .single();
 
-    if (error) {
-      return res.status(500).json({
+    if (findError) {
+      return res.status(404).json({
         success: false,
-        error: error.message
+        error: 'Budget not found or user not authorized'
       });
     }
 
-    // Jika data-nya null, berarti budget itu tidak ditemukan ATAU bukan milik user
-    if (!data) {
-      return res.status(404).json({
+    // 2. Tentukan rentang tanggal
+    const startDate = new Date(budget.year, budget.month - 1, 1).toISOString();
+    const endDate = new Date(budget.year, budget.month, 0).toISOString();
+
+    // 3. Hapus semua transaksi yang cocok (SESUAI PERMINTAAN)
+    const { error: txError } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('user_id', req.user.id)
+      .eq('category', budget.category_name)
+      .gte('date', startDate)
+      .lte('date', endDate);
+
+    if (txError) {
+      console.error("Transaction deletion part failed:", txError.message);
+      return res.status(500).json({
         success: false,
-        error: 'Budget not found or you do not have permission to delete it'
+        error: `Failed to delete related transactions: ${txError.message}`
+      });
+    }
+
+    // 4. Hapus budget pocket itu sendiri
+    const { error: budgetError } = await supabase
+      .from('budgets')
+      .delete()
+      .eq('id', id);
+
+    if (budgetError) {
+      console.error("Budget deletion part failed:", budgetError.message);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to delete budget: ${budgetError.message}`
       });
     }
 
     res.json({
       success: true,
-      message: 'Budget deleted successfully',
-      data: data
+      message: `Budget and related transactions for '${budget.category_name}' deleted successfully`
     });
 
   } catch (error) {
@@ -145,10 +166,10 @@ const deleteBudget = async (req, res) => {
     });
   }
 };
-// === [AKHIR FUNGSI BARU] ===
+// === [AKHIR FUNGSI DELETE] ===
 
 module.exports = {
   getBudgets,
   createOrUpdateBudget,
-  deleteBudget // [BARU] Ekspor fungsi baru
+  deleteBudget
 };
