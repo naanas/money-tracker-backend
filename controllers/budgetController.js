@@ -1,5 +1,6 @@
 const supabase = require('../config/database');
 
+// getBudgets tidak perlu diubah, kuerinya sudah benar
 const getBudgets = async (req, res) => {
   try {
     const { month, year } = req.query;
@@ -35,22 +36,26 @@ const getBudgets = async (req, res) => {
   }
 };
 
+// === [FUNGSI CREATE/UPDATE DIMODIFIKASI TOTAL] ===
 const createOrUpdateBudget = async (req, res) => {
   try {
-    const { amount, month, year } = req.body;
+    // [MODIFIKASI] Ambil category_name
+    const { amount, month, year, category_name } = req.body;
 
-    // Check if budget exists
+    // Cek apakah budget untuk KATEGORI INI sudah ada
     const { data: existingBudget } = await supabase
       .from('budgets')
       .select('id')
       .eq('user_id', req.user.id)
       .eq('month', parseInt(month))
       .eq('year', parseInt(year))
+      .eq('category_name', category_name) // [BARU] Cek berdasarkan kategori
       .single();
 
     let result;
     
     if (existingBudget) {
+      // JIKA SUDAH ADA: UPDATE budget untuk kategori itu
       result = await supabase
         .from('budgets')
         .update({
@@ -61,6 +66,7 @@ const createOrUpdateBudget = async (req, res) => {
         .select()
         .single();
     } else {
+      // JIKA BELUM ADA: INSERT budget baru untuk kategori itu
       result = await supabase
         .from('budgets')
         .insert([
@@ -68,7 +74,8 @@ const createOrUpdateBudget = async (req, res) => {
             user_id: req.user.id,
             amount: parseFloat(amount),
             month: parseInt(month),
-            year: parseInt(year)
+            year: parseInt(year),
+            category_name: category_name // [BARU] Simpan kategorinya
           }
         ])
         .select()
@@ -95,6 +102,7 @@ const createOrUpdateBudget = async (req, res) => {
     });
   }
 };
+// === [AKHIR MODIFIKASI] ===
 
 module.exports = {
   getBudgets,

@@ -9,7 +9,7 @@ const getMonthlySummary = async (req, res) => {
     const startDate = new Date(currentYear, currentMonth - 1, 1);
     const endDate = new Date(currentYear, currentMonth, 0);
 
-    // Get transactions
+    // Get transactions (Tidak berubah)
     const { data: transactions, error } = await supabase
       .from('transactions')
       .select('*')
@@ -24,7 +24,7 @@ const getMonthlySummary = async (req, res) => {
       });
     }
 
-    // Calculate analytics
+    // Calculate analytics (Tidak berubah)
     const totalIncome = transactions
       .filter(t => t.type === 'income')
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
@@ -35,7 +35,6 @@ const getMonthlySummary = async (req, res) => {
 
     const balance = totalIncome - totalExpenses;
 
-    // Expenses by category
     const expensesByCategory = transactions
       .filter(t => t.type === 'expense')
       .reduce((acc, transaction) => {
@@ -44,14 +43,28 @@ const getMonthlySummary = async (req, res) => {
         return acc;
       }, {});
 
-    // Get budget
-    const { data: budget } = await supabase
+    // === [BLOK BUDGET DIMODIFIKASI TOTAL] ===
+    // Get SEMUA budget items untuk bulan ini
+    const { data: budgetDetails, error: budgetError } = await supabase
       .from('budgets')
-      .select('amount')
+      .select('category_name, amount')
       .eq('user_id', req.user.id)
       .eq('month', parseInt(currentMonth))
-      .eq('year', parseInt(currentYear))
-      .single();
+      .eq('year', parseInt(currentYear));
+
+    if (budgetError) {
+      return res.status(500).json({
+        success: false,
+        error: budgetError.message
+      });
+    }
+
+    // Kalkulasi total budget dari semua sub-budget
+    const totalBudget = budgetDetails
+      ? budgetDetails.reduce((sum, b) => sum + parseFloat(b.amount), 0)
+      : 0;
+    
+    // === [AKHIR MODIFIKASI BLOK BUDGET] ===
 
     res.json({
       success: true,
@@ -68,10 +81,12 @@ const getMonthlySummary = async (req, res) => {
           income_count: transactions.filter(t => t.type === 'income').length,
           expense_count: transactions.filter(t => t.type === 'expense').length
         },
+        // [MODIFIKASI] Kirim struktur budget baru
         budget: {
-          amount: budget?.amount || 0,
+          total_amount: totalBudget, // Total dari semua sub-budget
           spent: totalExpenses,
-          remaining: (budget?.amount || 0) - totalExpenses
+          remaining: totalBudget - totalExpenses,
+          details: budgetDetails || [] // Kirim detail sub-budget ke frontend
         },
         expenses_by_category: expensesByCategory
       }
