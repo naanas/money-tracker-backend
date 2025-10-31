@@ -2,11 +2,14 @@ const supabase = require('../config/database');
 
 const getAllCategories = async (req, res) => {
   try {
-    // Kueri ini sudah benar untuk skema Anda (mengambil semua kategori global)
+    // === [MODIFIKASI KUERI UTAMA] ===
+    // Ambil kategori di mana user_id = user yang login ATAU user_id = null (default)
     const { data: categories, error } = await supabase
       .from('categories')
       .select('*')
+      .or(`user_id.eq.${req.user.id},user_id.is.null`) // Mengambil milik user ATAU default
       .order('name');
+    // === [AKHIR MODIFIKASI] ===
 
     if (error) {
       return res.status(500).json({
@@ -28,31 +31,33 @@ const getAllCategories = async (req, res) => {
   }
 };
 
-// === [FUNGSI BARU DITAMBAHKAN] ===
+// === [FUNGSI CREATE DIMODIFIKASI] ===
 const createCategory = async (req, res) => {
   try {
     const { name, type, icon, color } = req.body;
     
-    // Insert ke tabel global, tanpa user_id, sesuai skema
+    // === [MODIFIKASI] ===
+    // Sekarang kita tambahkan user_id dari middleware auth
     const { data: category, error } = await supabase
       .from('categories')
       .insert([
         { 
           name: name.trim(), 
           type,
-          icon: icon || null, // Atur ke null jika tidak disediakan
-          color: color || null // Atur ke null jika tidak disediakan
+          icon: icon || null,
+          color: color || null,
+          user_id: req.user.id // Tautkan kategori ini ke user
         }
       ])
       .select()
       .single();
+    // === [AKHIR MODIFIKASI] ===
 
     if (error) {
-      // Menangani jika kategori sudah ada (pelanggaran unik)
       if (error.code === '23505') { 
-        return res.status(409).json({ // 409 Conflict
+        return res.status(409).json({
           success: false,
-          error: 'Category with this name and type already exists'
+          error: 'You already have a category with this name and type'
         });
       }
       return res.status(500).json({
@@ -61,7 +66,7 @@ const createCategory = async (req, res) => {
       });
     }
 
-    res.status(201).json({ // 201 Created
+    res.status(201).json({
       success: true,
       message: 'Category created successfully',
       data: category
@@ -75,9 +80,9 @@ const createCategory = async (req, res) => {
     });
   }
 };
-// === [AKHIR FUNGSI BARU] ===
+// === [AKHIR FUNGSI CREATE] ===
 
 module.exports = {
   getAllCategories,
-  createCategory // [BARU] Ekspor fungsi baru
+  createCategory
 };
