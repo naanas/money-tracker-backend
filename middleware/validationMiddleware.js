@@ -1,3 +1,6 @@
+// [BARU] Impor konstanta
+const { TRANSACTION_TYPES } = require('../utils/constants');
+
 const validateTransaction = (req, res, next) => {
     const { amount, category, type } = req.body;
   
@@ -52,7 +55,40 @@ const validateTransaction = (req, res, next) => {
     next();
   };
   
-  module.exports = {
+// === [FUNGSI BARU DITAMBAHKAN] ===
+const validateCategory = (req, res, next) => {
+  const { name, type, icon, color } = req.body;
+
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    return res.status(400).json({
+      success: false,
+      error: 'Category name is required'
+    });
+  }
+
+  // Gunakan konstanta
+  if (!type || ![TRANSACTION_TYPES.INCOME, TRANSACTION_TYPES.EXPENSE].includes(type)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Type must be either "income" or "expense"'
+    });
+  }
+
+  // Validasi opsional untuk 'icon' dan 'color'
+  if (icon && typeof icon !== 'string') {
+    return res.status(400).json({ success: false, error: 'Icon must be a string' });
+  }
+
+  if (color && typeof color !== 'string') {
+    return res.status(400).json({ success: false, error: 'Color must be a string' });
+  }
+
+  next();
+};
+// === [AKHIR FUNGSI BARU] ===
+
+module.exports = {
     validateTransaction,
-    validateBudget
+    validateBudget,
+    validateCategory // [BARU] Ekspor fungsi baru
   };

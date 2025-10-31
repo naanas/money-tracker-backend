@@ -36,12 +36,10 @@ const register = async (req, res) => {
           }
         ]);
 
-      // === PERBAIKAN DI SINI ===
+      // === PERBAIKAN BUG ===
       if (profileError) {
         console.error('Profile creation error:', profileError);
-        
-        // Jika profil gagal dibuat (misal: duplikat),
-        // kirim respons error dan hentikan eksekusi di sini.
+        // Kirim error jika profil gagal dibuat (misal: duplikat)
         return res.status(400).json({
             success: false,
             error: `User auth created, but profile insertion failed: ${profileError.message}`
