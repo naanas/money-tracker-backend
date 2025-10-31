@@ -59,11 +59,5 @@ app.use('/api/analytics', analyticsRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-// Start server
-app.listen(environment.port, '0.0.0.0', () => {
-  console.log(`🚀 Money Tracker API running on port ${environment.port}`);
-  console.log(`📊 Environment: ${environment.nodeEnv}`);
-  console.log(`🔗 Health: http://localhost:${environment.port}/health`);
-});
 
 module.exports = app;
