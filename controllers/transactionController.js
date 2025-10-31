@@ -1,18 +1,18 @@
-const supabase = require('../config/database');
+const createAuthClient = require('../utils/createAuthClient');
 
 const getAllTransactions = async (req, res) => {
   try {
     const { page = 1, limit = 50, type, category, month, year } = req.query;
-    
-    // [MODIFIKASI] Gunakan konstanta dari file (walaupun file tidak di-pass, ini best practice)
+    const supabaseAuth = createAuthClient(req.token);
+
     const effectiveLimit = Math.min(parseInt(limit) || 50, 100);
     const effectivePage = parseInt(page) || 1;
     const startIndex = (effectivePage - 1) * effectiveLimit;
 
-    let query = supabase
+    let query = supabaseAuth
       .from('transactions')
       .select('*', { count: 'exact' })
-      .eq('user_id', req.user.id)
+      // [DIHAPUS] .eq('user_id', req.user.id) // RLS akan menangani ini
       .order('date', { ascending: false })
       .range(startIndex, startIndex + effectiveLimit - 1);
 
@@ -28,10 +28,7 @@ const getAllTransactions = async (req, res) => {
     const { data: transactions, error, count } = await query;
 
     if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      return res.status(500).json({ success: false, error: error.message });
     }
 
     res.json({
@@ -48,22 +45,20 @@ const getAllTransactions = async (req, res) => {
     });
   } catch (error) {
     console.error('Transactions fetch error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
 const createTransaction = async (req, res) => {
   try {
+    const supabaseAuth = createAuthClient(req.token);
     const { amount, category, description, type, date, receipt_url } = req.body;
 
-    const { data: transaction, error } = await supabase
+    const { data: transaction, error } = await supabaseAuth
       .from('transactions')
       .insert([
         {
-          user_id: req.user.id,
+          user_id: req.user.id, // RLS Policy (WITH CHECK) akan memvalidasi ini
           amount: parseFloat(amount),
           category,
           description: description || '',
@@ -76,10 +71,7 @@ const createTransaction = async (req, res) => {
       .single();
 
     if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      return res.status(500).json({ success: false, error: error.message });
     }
 
     res.status(201).json({
@@ -89,35 +81,29 @@ const createTransaction = async (req, res) => {
     });
   } catch (error) {
     console.error('Transaction creation error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
 const updateTransaction = async (req, res) => {
   try {
+    const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params;
     const updates = req.body;
 
-    // [MODIFIKASI] Kueri atomik
-    const { data: transaction, error } = await supabase
+    const { data: transaction, error } = await supabaseAuth
       .from('transactions')
       .update({
         ...updates,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
-      .eq('user_id', req.user.id) // Pastikan hanya pemilik yang bisa update
+      // [DIHAPUS] .eq('user_id', req.user.id) // RLS akan menangani ini
       .select()
       .single();
 
     if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      return res.status(500).json({ success: false, error: error.message });
     }
     
     if (!transaction) {
@@ -134,32 +120,26 @@ const updateTransaction = async (req, res) => {
     });
   } catch (error) {
     console.error('Transaction update error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
 const deleteTransaction = async (req, res) => {
   try {
+    const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params;
 
-    // [MODIFIKASI] Kueri atomik
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAuth
       .from('transactions')
       .delete()
       .eq('id', id)
-      .eq('user_id', req.user.id) // Pastikan hanya pemilik yang bisa hapus
+      // [DIHAPUS] .eq('user_id', req.user.id) // RLS akan menangani ini
       .select()
       .single();
 
 
     if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      return res.status(500).json({ success: false, error: error.message });
     }
 
     if (!data) {
@@ -175,27 +155,22 @@ const deleteTransaction = async (req, res) => {
     });
   } catch (error) {
     console.error('Transaction deletion error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
-// === [FUNGSI BARU DITAMBAHKAN] ===
 const resetTransactions = async (req, res) => {
   try {
-    // Hapus SEMUA transaksi yang user_id-nya cocok dengan user yang login
-    const { error } = await supabase
+    const supabaseAuth = createAuthClient(req.token);
+
+    // RLS akan membatasi delete() hanya ke data milik user
+    const { error } = await supabaseAuth
       .from('transactions')
       .delete()
-      .eq('user_id', req.user.id);
+      .neq('id', '00000000-0000-0000-0000-000000000000'); // Trik untuk menghapus semua yg cocok RLS
 
     if (error) {
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      return res.status(500).json({ success: false, error: error.message });
     }
 
     res.json({
@@ -205,18 +180,14 @@ const resetTransactions = async (req, res) => {
 
   } catch (error) {
     console.error('Transaction reset error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
-// === [AKHIR FUNGSI BARU] ===
 
 module.exports = {
   getAllTransactions,
   createTransaction,
   updateTransaction,
   deleteTransaction,
-  resetTransactions // [BARU] Ekspor fungsi baru
+  resetTransactions 
 };

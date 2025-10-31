@@ -1,4 +1,5 @@
 const supabase = require('../config/database');
+const createAuthClient = require('../utils/createAuthClient'); // <-- BARU
 
 const register = async (req, res) => {
   try {
@@ -36,19 +37,15 @@ const register = async (req, res) => {
           }
         ]);
 
-      // === PERBAIKAN BUG ===
       if (profileError) {
         console.error('Profile creation error:', profileError);
-        // Kirim error jika profil gagal dibuat (misal: duplikat)
         return res.status(400).json({
             success: false,
             error: `User auth created, but profile insertion failed: ${profileError.message}`
         });
       }
-      // === AKHIR PERBAIKAN ===
     }
 
-    // Kode ini sekarang HANYA akan berjalan jika profileError TIDAK ADA
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
@@ -113,9 +110,12 @@ const login = async (req, res) => {
   }
 };
 
+// [MODIFIKASI] Gunakan createAuthClient untuk fetch profile
 const getProfile = async (req, res) => {
   try {
-    const { data: user, error } = await supabase
+    const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi
+    
+    const { data: user, error } = await supabaseAuth
       .from('users')
       .select('*')
       .eq('id', req.user.id)
@@ -124,7 +124,7 @@ const getProfile = async (req, res) => {
     if (error) {
       return res.status(404).json({
         success: false,
-        error: 'User not found'
+        error: 'User profile not found'
       });
     }
 

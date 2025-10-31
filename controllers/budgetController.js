@@ -1,13 +1,14 @@
-const supabase = require('../config/database');
+const createAuthClient = require('../utils/createAuthClient');
 
-// getBudgets (Tidak berubah)
 const getBudgets = async (req, res) => {
   try {
+    const supabaseAuth = createAuthClient(req.token);
     const { month, year } = req.query;
-    let query = supabase
+    
+    let query = supabaseAuth
       .from('budgets')
-      .select('*')
-      .eq('user_id', req.user.id);
+      .select('*');
+      // [DIHAPUS] .eq('user_id', req.user.id); // RLS menangani
 
     if (month && year) {
       query = query.eq('month', parseInt(month)).eq('year', parseInt(year));
@@ -23,15 +24,15 @@ const getBudgets = async (req, res) => {
   }
 };
 
-// createOrUpdateBudget (Tidak berubah)
 const createOrUpdateBudget = async (req, res) => {
   try {
+    const supabaseAuth = createAuthClient(req.token);
     const { amount, month, year, category_name } = req.body;
 
-    const { data: existingBudget } = await supabase
+    const { data: existingBudget } = await supabaseAuth
       .from('budgets')
       .select('id')
-      .eq('user_id', req.user.id)
+      // [DIHAPUS] .eq('user_id', req.user.id) // RLS menangani
       .eq('month', parseInt(month))
       .eq('year', parseInt(year))
       .eq('category_name', category_name)
@@ -40,14 +41,14 @@ const createOrUpdateBudget = async (req, res) => {
     let result;
     
     if (existingBudget && parseFloat(amount) === 0) {
-      result = await supabase
+      result = await supabaseAuth
         .from('budgets')
         .delete()
         .eq('id', existingBudget.id)
         .select()
         .single();
     } else if (existingBudget) {
-      result = await supabase
+      result = await supabaseAuth
         .from('budgets')
         .update({
           amount: parseFloat(amount),
@@ -57,11 +58,11 @@ const createOrUpdateBudget = async (req, res) => {
         .select()
         .single();
     } else if (!existingBudget && parseFloat(amount) > 0) {
-      result = await supabase
+      result = await supabaseAuth
         .from('budgets')
         .insert([
           {
-            user_id: req.user.id,
+            user_id: req.user.id, // RLS Policy (WITH CHECK) akan memvalidasi ini
             amount: parseFloat(amount),
             month: parseInt(month),
             year: parseInt(year),
@@ -93,18 +94,16 @@ const createOrUpdateBudget = async (req, res) => {
   }
 };
 
-// === [FUNGSI DELETE DIMODIFIKASI TOTAL] ===
-// Perilaku berbahaya telah dihapus.
-// Fungsi ini sekarang HANYA menghapus budget, tidak lagi menghapus transaksi.
 const deleteBudget = async (req, res) => {
   try {
-    const { id } = req.params; // ID dari budget
+    const supabaseAuth = createAuthClient(req.token);
+    const { id } = req.params; 
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAuth
       .from('budgets')
       .delete()
       .eq('id', id)
-      .eq('user_id', req.user.id) // Pastikan hanya pemilik yang bisa hapus
+      // [DIHAPUS] .eq('user_id', req.user.id) // RLS menangani
       .select()
       .single();
 
@@ -132,7 +131,6 @@ const deleteBudget = async (req, res) => {
     });
   }
 };
-// === [AKHIR FUNGSI DELETE] ===
 
 module.exports = {
   getBudgets,

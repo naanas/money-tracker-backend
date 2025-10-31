@@ -1,12 +1,14 @@
-const supabase = require('../config/database');
+const createAuthClient = require('../utils/createAuthClient');
 
 // Mendapatkan semua target tabungan
 const getSavingsGoals = async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi
+    
+    // RLS (Row Level Security) akan otomatis memfilter berdasarkan user_id
+    const { data, error } = await supabaseAuth
       .from('savings_goals')
       .select('*')
-      .eq('user_id', req.user.id)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -21,12 +23,15 @@ const getSavingsGoals = async (req, res) => {
 // Membuat target tabungan baru
 const createSavingsGoal = async (req, res) => {
   try {
+    const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi
     const { name, target_amount } = req.body;
 
-    const { data, error } = await supabase
+    // Kita tetap harus memasukkan user_id secara eksplisit 
+    // karena RLS INSERT policy kita memerlukannya (WITH CHECK)
+    const { data, error } = await supabaseAuth
       .from('savings_goals')
       .insert({
-        user_id: req.user.id,
+        user_id: req.user.id, 
         name: name,
         target_amount: parseFloat(target_amount)
       })
@@ -45,17 +50,18 @@ const createSavingsGoal = async (req, res) => {
 // Menambahkan dana ke tabungan (Memanggil Fungsi RPC)
 const addFundsToSavings = async (req, res) => {
   try {
+    const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi
     const { goal_id, amount, date } = req.body;
 
-    // Ini memanggil fungsi 'add_to_savings' yang Anda buat di Supabase
-    const { error } = await supabase.rpc('add_to_savings', {
+    // Panggil RPC menggunakan client yang sudah diautentikasi
+    // auth.uid() di dalam fungsi SQL sekarang akan berfungsi
+    const { error } = await supabaseAuth.rpc('add_to_savings', {
       goal_id: goal_id,
       amount_to_add: parseFloat(amount),
       transaction_date: date || new Date().toISOString().split('T')[0]
     });
 
     if (error) throw error;
-
     res.json({ success: true, message: 'Dana berhasil ditambahkan ke tabungan' });
   } catch (error) {
     console.error('Add funds to savings error:', error);
@@ -67,13 +73,14 @@ const addFundsToSavings = async (req, res) => {
 // Menghapus target tabungan
 const deleteSavingsGoal = async (req, res) => {
   try {
+    const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi
     const { id } = req.params;
 
-    const { data, error } = await supabase
+    // RLS akan mencegah penghapusan jika bukan milik user
+    const { data, error } = await supabaseAuth
       .from('savings_goals')
       .delete()
       .eq('id', id)
-      .eq('user_id', req.user.id)
       .select()
       .single();
 
