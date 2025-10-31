@@ -1,16 +1,18 @@
 const createAuthClient = require('../utils/createAuthClient');
+const supabaseAnon = require('../config/database'); // <-- Gunakan untuk kategori default (jika diperlukan)
 
 // Mendapatkan semua target tabungan
 const getSavingsGoals = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
-    // [MODIFIKASI] Hapus query parameters month dan year dari sini.
-    // [MODIFIKASI] Filter tunggal: hanya ambil yang current_amount < target_amount
+    // [MODIFIKASI KRITIS] Menggunakan .lt(kolom1, kolom2) tanpa quotes di kolom kedua
     let query = supabaseAuth
       .from('savings_goals')
       .select('*')
-      .lt('current_amount', 'target_amount') // <-- HANYA AMBIL YANG BELUM TERCAPAI
+      // [PERBAIKAN BUG] Membandingkan kolom current_amount dengan kolom target_amount
+      // Sintaks yang benar di PostgREST adalah .lt(kolom1, 'kolom2')
+      .lt('current_amount', 'target_amount') 
       .order('created_at', { ascending: false });
 
     const { data, error } = await query;
