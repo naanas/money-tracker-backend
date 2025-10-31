@@ -28,12 +28,10 @@ const validateTransaction = (req, res, next) => {
     next();
   };
   
-  // === [FUNGSI VALIDATEBUDGET DIMODIFIKASI] ===
   const validateBudget = (req, res, next) => {
-    // [MODIFIKASI] Ambil category_name
+    // ... (kode validateBudget Anda tidak berubah) ...
     const { amount, month, year, category_name } = req.body;
   
-    // [MODIFIKASI] Izinkan amount 0 (untuk reset)
     if (amount === null || amount === undefined || isNaN(amount) || parseFloat(amount) < 0) {
       return res.status(400).json({
         success: false,
@@ -55,7 +53,6 @@ const validateTransaction = (req, res, next) => {
       });
     }
 
-    // [BARU] Validasi category_name
     if (!category_name || typeof category_name !== 'string' || category_name.trim() === '') {
       return res.status(400).json({
         success: false,
@@ -65,7 +62,6 @@ const validateTransaction = (req, res, next) => {
   
     next();
   };
-  // === [AKHIR MODIFIKASI] ===
 
   const validateCategory = (req, res, next) => {
     // ... (kode validateCategory Anda tidak berubah) ...
@@ -95,9 +91,53 @@ const validateTransaction = (req, res, next) => {
   
     next();
   };
+
+  // === [FUNGSI BARU 1] ===
+  const validateSavingsGoal = (req, res, next) => {
+    const { name, target_amount } = req.body;
+
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Nama tabungan harus diisi'
+      });
+    }
+    
+    if (!target_amount || isNaN(target_amount) || parseFloat(target_amount) <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Target jumlah harus angka positif'
+      });
+    }
+    
+    next();
+  };
+
+  // === [FUNGSI BARU 2] ===
+  const validateSavingsAddFunds = (req, res, next) => {
+    const { goal_id, amount } = req.body;
+
+    if (!goal_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Goal ID harus diisi'
+      });
+    }
+    
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Jumlah harus angka positif'
+      });
+    }
+    
+    next();
+  };
   
   module.exports = {
       validateTransaction,
       validateBudget,
-      validateCategory
+      validateCategory,
+      validateSavingsGoal,      // <-- Tambahkan
+      validateSavingsAddFunds     // <-- Tambahkan
     };
