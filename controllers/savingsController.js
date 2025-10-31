@@ -5,11 +5,31 @@ const getSavingsGoals = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
-    // RLS (Row Level Security) akan otomatis memfilter berdasarkan user_id
-    const { data, error } = await supabaseAuth
+    // [MODIFIKASI] Ambil query parameters month dan year
+    const { month, year } = req.query;
+
+    let query = supabaseAuth
       .from('savings_goals')
       .select('*')
       .order('created_at', { ascending: false });
+
+    // [BARU] Implementasi filtering berdasarkan bulan target
+    if (month && year) {
+      const currentYear = parseInt(year);
+      const currentMonth = parseInt(month);
+
+      // Hitung tanggal akhir bulan (0 adalah hari terakhir bulan sebelumnya)
+      const endOfMonthDate = new Date(currentYear, currentMonth, 0); 
+      const endOfMonth = endOfMonthDate.toISOString().split('T')[0];
+      
+      const startOfMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+
+      // Filter: target_date harus berada di dalam bulan ini ATAU target_date harus NULL.
+      // Filter RLS akan memastikan hanya data milik user yang diambil.
+      query = query.or(`target_date.gte.${startOfMonth},target_date.lte.${endOfMonth},target_date.is.null`);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     res.json({ success: true, data });
@@ -19,11 +39,10 @@ const getSavingsGoals = async (req, res) => {
   }
 };
 
-// === [CREATE SAVINGS GOAL DIMODIFIKASI] ===
+// Membuat target tabungan baru
 const createSavingsGoal = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
-    // [MODIFIKASI] Ambil target_date
     const { name, target_amount, target_date } = req.body; 
 
     const { data, error } = await supabaseAuth
@@ -32,7 +51,7 @@ const createSavingsGoal = async (req, res) => {
         user_id: req.user.id, 
         name: name,
         target_amount: parseFloat(target_amount),
-        target_date: target_date || null // <-- BARU: Masukkan target_date
+        target_date: target_date || null 
       })
       .select()
       .single();
@@ -44,7 +63,6 @@ const createSavingsGoal = async (req, res) => {
     res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
-// === [AKHIR MODIFIKASI] ===
 
 // Menambahkan dana ke tabungan (Memanggil Fungsi RPC)
 const addFundsToSavings = async (req, res) => {
