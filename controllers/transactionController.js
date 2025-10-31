@@ -3,14 +3,18 @@ const supabase = require('../config/database');
 const getAllTransactions = async (req, res) => {
   try {
     const { page = 1, limit = 50, type, category, month, year } = req.query;
-    const startIndex = (page - 1) * limit;
+    
+    // [MODIFIKASI] Gunakan konstanta dari file (walaupun file tidak di-pass, ini best practice)
+    const effectiveLimit = Math.min(parseInt(limit) || 50, 100);
+    const effectivePage = parseInt(page) || 1;
+    const startIndex = (effectivePage - 1) * effectiveLimit;
 
     let query = supabase
       .from('transactions')
       .select('*', { count: 'exact' })
       .eq('user_id', req.user.id)
       .order('date', { ascending: false })
-      .range(startIndex, startIndex + limit - 1);
+      .range(startIndex, startIndex + effectiveLimit - 1);
 
     if (type) query = query.eq('type', type);
     if (category) query = query.eq('category', category);
@@ -35,10 +39,10 @@ const getAllTransactions = async (req, res) => {
       data: {
         transactions,
         pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
+          page: effectivePage,
+          limit: effectiveLimit,
           total: count,
-          totalPages: Math.ceil(count / limit)
+          totalPages: Math.ceil(count / effectiveLimit)
         }
       }
     });
@@ -97,21 +101,7 @@ const updateTransaction = async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    // Check ownership
-    const { data: existingTransaction, error: checkError } = await supabase
-      .from('transactions')
-      .select('id')
-      .eq('id', id)
-      .eq('user_id', req.user.id)
-      .single();
-
-    if (checkError || !existingTransaction) {
-      return res.status(404).json({
-        success: false,
-        error: 'Transaction not found'
-      });
-    }
-
+    // [MODIFIKASI] Kueri atomik
     const { data: transaction, error } = await supabase
       .from('transactions')
       .update({
@@ -119,6 +109,7 @@ const updateTransaction = async (req, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
+      .eq('user_id', req.user.id) // Pastikan hanya pemilik yang bisa update
       .select()
       .single();
 
@@ -126,6 +117,13 @@ const updateTransaction = async (req, res) => {
       return res.status(500).json({
         success: false,
         error: error.message
+      });
+    }
+    
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        error: 'Transaction not found or user not authorized'
       });
     }
 
@@ -147,30 +145,27 @@ const deleteTransaction = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check ownership
-    const { data: existingTransaction, error: checkError } = await supabase
-      .from('transactions')
-      .select('id')
-      .eq('id', id)
-      .eq('user_id', req.user.id)
-      .single();
-
-    if (checkError || !existingTransaction) {
-      return res.status(404).json({
-        success: false,
-        error: 'Transaction not found'
-      });
-    }
-
-    const { error } = await supabase
+    // [MODIFIKASI] Kueri atomik
+    const { data, error } = await supabase
       .from('transactions')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', req.user.id) // Pastikan hanya pemilik yang bisa hapus
+      .select()
+      .single();
+
 
     if (error) {
       return res.status(500).json({
         success: false,
         error: error.message
+      });
+    }
+
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        error: 'Transaction not found or user not authorized'
       });
     }
 
@@ -187,9 +182,41 @@ const deleteTransaction = async (req, res) => {
   }
 };
 
+// === [FUNGSI BARU DITAMBAHKAN] ===
+const resetTransactions = async (req, res) => {
+  try {
+    // Hapus SEMUA transaksi yang user_id-nya cocok dengan user yang login
+    const { error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('user_id', req.user.id);
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'All transactions have been reset successfully.'
+    });
+
+  } catch (error) {
+    console.error('Transaction reset error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+};
+// === [AKHIR FUNGSI BARU] ===
+
 module.exports = {
   getAllTransactions,
   createTransaction,
   updateTransaction,
-  deleteTransaction
+  deleteTransaction,
+  resetTransactions // [BARU] Ekspor fungsi baru
 };
