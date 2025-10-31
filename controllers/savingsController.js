@@ -5,30 +5,13 @@ const getSavingsGoals = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
-    // [MODIFIKASI] Ambil query parameters month dan year
-    const { month, year } = req.query;
-
+    // [MODIFIKASI] Hapus query parameters month dan year dari sini.
+    // [MODIFIKASI] Filter tunggal: hanya ambil yang current_amount < target_amount
     let query = supabaseAuth
       .from('savings_goals')
       .select('*')
+      .lt('current_amount', 'target_amount') // <-- HANYA AMBIL YANG BELUM TERCAPAI
       .order('created_at', { ascending: false });
-
-    // === [PERBAIKAN LOGIKA FILTERING] ===
-    if (month && year) {
-      const currentYear = parseInt(year);
-      const currentMonth = parseInt(month);
-
-      // Hitung tanggal awal dan akhir bulan yang dipilih
-      const startDate = new Date(currentYear, currentMonth - 1, 1).toISOString().split('T')[0];
-      const endDate = new Date(currentYear, currentMonth, 0).toISOString().split('T')[0];
-      
-      // Kita perlu membuat filter yang membatasi target_date dalam range bulan yang dilihat.
-      // Filter OR harus mencakup kedua kondisi:
-      // 1. target_date berada dalam bulan yang dipilih
-      // 2. target_date adalah NULL (ongoing goal)
-      query = query.or(`and(target_date.gte.${startDate},target_date.lte.${endDate}),target_date.is.null`);
-    }
-    // === [AKHIR PERBAIKAN] ===
 
     const { data, error } = await query;
 
@@ -68,7 +51,7 @@ const createSavingsGoal = async (req, res) => {
 // Menambahkan dana ke tabungan (Memanggil Fungsi RPC)
 const addFundsToSavings = async (req, res) => {
   try {
-    const supabaseAuth = createAuthClient(req.token); 
+    const supabaseAuth = createAuthClient(req.token);
     const { goal_id, amount, date } = req.body;
 
     const { error } = await supabaseAuth.rpc('add_to_savings', {
