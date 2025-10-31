@@ -13,7 +13,8 @@ const getSavingsGoals = async (req, res) => {
     res.json({ success: true, data });
   } catch (error) {
     console.error('Get savings goals error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error' });
+    // [MODIFIKASI] Tampilkan pesan error asli
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
 
@@ -36,7 +37,8 @@ const createSavingsGoal = async (req, res) => {
     res.status(201).json({ success: true, data });
   } catch (error) {
     console.error('Create savings goal error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error' });
+    // [MODIFIKASI] Tampilkan pesan error asli
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
 
@@ -57,7 +59,8 @@ const addFundsToSavings = async (req, res) => {
     res.json({ success: true, message: 'Dana berhasil ditambahkan ke tabungan' });
   } catch (error) {
     console.error('Add funds to savings error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    // [MODIFIKASI] Tampilkan pesan error asli
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
 
@@ -83,7 +86,8 @@ const deleteSavingsGoal = async (req, res) => {
     res.json({ success: true, message: 'Target tabungan dihapus' });
   } catch (error) {
     console.error('Delete savings goal error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error' });
+    // [MODIFIKASI] Tampilkan pesan error asli
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
 
