@@ -1,6 +1,6 @@
 const supabase = require('../config/database');
 
-// getBudgets tidak perlu diubah, kuerinya sudah benar
+// getBudgets (Tidak berubah)
 const getBudgets = async (req, res) => {
   try {
     const { month, year } = req.query;
@@ -36,10 +36,9 @@ const getBudgets = async (req, res) => {
   }
 };
 
-// === [FUNGSI CREATE/UPDATE DIMODIFIKASI TOTAL] ===
+// createOrUpdateBudget (Tidak berubah)
 const createOrUpdateBudget = async (req, res) => {
   try {
-    // [MODIFIKASI] Ambil category_name
     const { amount, month, year, category_name } = req.body;
 
     // Cek apakah budget untuk KATEGORI INI sudah ada
@@ -49,13 +48,13 @@ const createOrUpdateBudget = async (req, res) => {
       .eq('user_id', req.user.id)
       .eq('month', parseInt(month))
       .eq('year', parseInt(year))
-      .eq('category_name', category_name) // [BARU] Cek berdasarkan kategori
+      .eq('category_name', category_name) 
       .single();
 
     let result;
     
     if (existingBudget) {
-      // JIKA SUDAH ADA: UPDATE budget untuk kategori itu
+      // JIKA SUDAH ADA: UPDATE
       result = await supabase
         .from('budgets')
         .update({
@@ -66,7 +65,7 @@ const createOrUpdateBudget = async (req, res) => {
         .select()
         .single();
     } else {
-      // JIKA BELUM ADA: INSERT budget baru untuk kategori itu
+      // JIKA BELUM ADA: INSERT
       result = await supabase
         .from('budgets')
         .insert([
@@ -75,7 +74,7 @@ const createOrUpdateBudget = async (req, res) => {
             amount: parseFloat(amount),
             month: parseInt(month),
             year: parseInt(year),
-            category_name: category_name // [BARU] Simpan kategorinya
+            category_name: category_name 
           }
         ])
         .select()
@@ -102,9 +101,54 @@ const createOrUpdateBudget = async (req, res) => {
     });
   }
 };
-// === [AKHIR MODIFIKASI] ===
+
+// === [FUNGSI BARU DITAMBAHKAN] ===
+const deleteBudget = async (req, res) => {
+  try {
+    const { id } = req.params; // Ambil ID budget dari URL
+
+    // Hapus budget HANYA JIKA ID-nya cocok DAN user_id-nya cocok
+    const { data, error } = await supabase
+      .from('budgets')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', req.user.id) // Paling penting!
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+
+    // Jika data-nya null, berarti budget itu tidak ditemukan ATAU bukan milik user
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        error: 'Budget not found or you do not have permission to delete it'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Budget deleted successfully',
+      data: data
+    });
+
+  } catch (error) {
+    console.error('Budget deletion error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+};
+// === [AKHIR FUNGSI BARU] ===
 
 module.exports = {
   getBudgets,
-  createOrUpdateBudget
+  createOrUpdateBudget,
+  deleteBudget // [BARU] Ekspor fungsi baru
 };
