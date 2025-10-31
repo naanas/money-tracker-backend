@@ -1,7 +1,7 @@
 const { TRANSACTION_TYPES } = require('../utils/constants');
 
 const validateTransaction = (req, res, next) => {
-    // ... (kode validateTransaction Anda tidak berubah) ...
+    // ... (validateTransaction tidak berubah) ...
     const { amount, category, type } = req.body;
   
     if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
@@ -29,7 +29,7 @@ const validateTransaction = (req, res, next) => {
   };
   
   const validateBudget = (req, res, next) => {
-    // ... (kode validateBudget Anda tidak berubah) ...
+    // ... (validateBudget tidak berubah) ...
     const { amount, month, year, category_name } = req.body;
   
     if (amount === null || amount === undefined || isNaN(amount) || parseFloat(amount) < 0) {
@@ -64,7 +64,7 @@ const validateTransaction = (req, res, next) => {
   };
 
   const validateCategory = (req, res, next) => {
-    // ... (kode validateCategory Anda tidak berubah) ...
+    // ... (validateCategory tidak berubah) ...
     const { name, type, icon, color } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim() === '') {
@@ -92,9 +92,9 @@ const validateTransaction = (req, res, next) => {
     next();
   };
 
-  // === [FUNGSI BARU 1] ===
+  // === [FUNGSI SAVINGS GOAL DIMODIFIKASI] ===
   const validateSavingsGoal = (req, res, next) => {
-    const { name, target_amount } = req.body;
+    const { name, target_amount, target_date } = req.body; // <-- MODIFIKASI: Ambil target_date
 
     if (!name || typeof name !== 'string' || name.trim() === '') {
       return res.status(400).json({
@@ -109,12 +109,20 @@ const validateTransaction = (req, res, next) => {
         error: 'Target jumlah harus angka positif'
       });
     }
+
+    // [BARU] Validasi target_date (opsional, tapi jika diisi tidak boleh di masa lalu)
+    if (target_date && new Date(target_date) < new Date(new Date().setHours(0,0,0,0))) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tanggal target tidak boleh di masa lalu'
+      });
+    }
     
     next();
   };
 
-  // === [FUNGSI BARU 2] ===
   const validateSavingsAddFunds = (req, res, next) => {
+    // ... (validateSavingsAddFunds tidak berubah) ...
     const { goal_id, amount } = req.body;
 
     if (!goal_id) {
@@ -138,6 +146,6 @@ const validateTransaction = (req, res, next) => {
       validateTransaction,
       validateBudget,
       validateCategory,
-      validateSavingsGoal,      // <-- Tambahkan
-      validateSavingsAddFunds     // <-- Tambahkan
+      validateSavingsGoal,      
+      validateSavingsAddFunds     
     };
