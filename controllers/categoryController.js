@@ -2,14 +2,12 @@ const supabase = require('../config/database');
 
 const getAllCategories = async (req, res) => {
   try {
-    // === [MODIFIKASI KUERI UTAMA] ===
     // Ambil kategori di mana user_id = user yang login ATAU user_id = null (default)
     const { data: categories, error } = await supabase
       .from('categories')
       .select('*')
       .or(`user_id.eq.${req.user.id},user_id.is.null`) // Mengambil milik user ATAU default
       .order('name');
-    // === [AKHIR MODIFIKASI] ===
 
     if (error) {
       return res.status(500).json({
@@ -31,13 +29,11 @@ const getAllCategories = async (req, res) => {
   }
 };
 
-// === [FUNGSI CREATE DIMODIFIKASI] ===
 const createCategory = async (req, res) => {
   try {
     const { name, type, icon, color } = req.body;
     
-    // === [MODIFIKASI] ===
-    // Sekarang kita tambahkan user_id dari middleware auth
+    // Tambahkan user_id dari middleware auth
     const { data: category, error } = await supabase
       .from('categories')
       .insert([
@@ -51,7 +47,6 @@ const createCategory = async (req, res) => {
       ])
       .select()
       .single();
-    // === [AKHIR MODIFIKASI] ===
 
     if (error) {
       if (error.code === '23505') { 
@@ -80,9 +75,55 @@ const createCategory = async (req, res) => {
     });
   }
 };
-// === [AKHIR FUNGSI CREATE] ===
+
+// === [FUNGSI BARU DITAMBAHKAN] ===
+const deleteCategory = async (req, res) => {
+  try {
+    const { id } = req.params; // Ambil ID kategori dari URL
+
+    // Hapus kategori HANYA JIKA ID-nya cocok DAN user_id-nya cocok
+    // Ini secara otomatis mencegah user menghapus kategori default (yang user_id-nya NULL)
+    const { data, error } = await supabase
+      .from('categories')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', req.user.id) // Paling penting!
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+
+    // Jika data-nya null, berarti kategori itu tidak ditemukan ATAU bukan milik user
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        error: 'Category not found or you do not have permission to delete it'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Category deleted successfully',
+      data: data
+    });
+
+  } catch (error) {
+    console.error('Category deletion error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+};
+// === [AKHIR FUNGSI BARU] ===
 
 module.exports = {
   getAllCategories,
-  createCategory
+  createCategory,
+  deleteCategory // [BARU] Ekspor fungsi baru
 };

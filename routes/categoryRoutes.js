@@ -1,8 +1,11 @@
 const express = require('express');
-// [BARU] Impor fungsi createCategory
-const { getAllCategories, createCategory } = require('../controllers/categoryController');
+// [BARU] Impor fungsi deleteCategory
+const { 
+  getAllCategories, 
+  createCategory, 
+  deleteCategory 
+} = require('../controllers/categoryController');
 const { authenticateUser } = require('../middleware/authMiddleware');
-// [BARU] Impor validator kategori
 const { validateCategory } = require('../middleware/validationMiddleware');
 
 const router = express.Router();
@@ -10,9 +13,11 @@ const router = express.Router();
 router.use(authenticateUser);
 
 router.get('/', getAllCategories);
+router.post('/', validateCategory, createCategory);
 
 // === [RUTE BARU DITAMBAHKAN] ===
-router.post('/', validateCategory, createCategory);
+// :id adalah parameter URL (misal: /api/categories/uuid-abc-123)
+router.delete('/:id', deleteCategory);
 // === [AKHIR RUTE BARU] ===
 
 module.exports = router;
