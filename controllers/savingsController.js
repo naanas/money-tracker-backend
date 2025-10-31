@@ -1,37 +1,34 @@
 const createAuthClient = require('../utils/createAuthClient');
-const supabaseAnon = require('../config/database'); 
 
 // Mendapatkan semua target tabungan
 const getSavingsGoals = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
+    // [MODIFIKASI] Ambil query parameters month dan year
+    const { month, year } = req.query;
+
     let query = supabaseAuth
       .from('savings_goals')
       .select('*')
-      
-      // [PERBAIKAN BUG KRITIS] Menggunakan filter kolom eksplisit:
-      // lt.current_amount=target_amount
-      // Ini memaksa PostgREST membandingkan nilai dua kolom.
-      .filter('current_amount', 'lt', supabaseAnon.rpc('target_amount')) 
-      
-      // Catatan: Karena PostgREST API tidak secara langsung mendukung perbandingan kolom 
-      // yang mudah dengan metode .lt() dalam semua skenario, kita menggunakan .filter()
-      // dengan bantuan kueri RPC dummy untuk memaksa perbandingan kolom
-      // atau sintaks yang diizinkan oleh PostgREST:
-      // query = query.lt('current_amount.cs', 'target_amount') // Jika PostgREST mendukung
-      // Karena kita tidak bisa yakin PostgREST API support, kita gunakan metode yang paling stabil:
-      .filter('current_amount', 'lt.target_amount'); // <-- Sintaks PostgREST yang paling reliable untuk perbandingan kolom
-      
-      // Alternatif yang lebih portabel:
-      // query = query.or('current_amount.lt.target_amount');
+      .order('created_at', { ascending: false });
 
-    // Kita kembali ke sintaks yang paling jelas dan sering didukung oleh Supabase Client
-    query = supabaseAuth.from('savings_goals')
-        .select('*')
-        .lt('current_amount', 'target_amount') // Percobaan perbaikan yang seharusnya bekerja di PostgREST
-        .order('created_at', { ascending: false });
+    // === [PERBAIKAN LOGIKA FILTERING] ===
+    if (month && year) {
+      const currentYear = parseInt(year);
+      const currentMonth = parseInt(month);
 
+      // Hitung tanggal awal dan akhir bulan yang dipilih
+      const startDate = new Date(currentYear, currentMonth - 1, 1).toISOString().split('T')[0];
+      const endDate = new Date(currentYear, currentMonth, 0).toISOString().split('T')[0];
+      
+      // Kita perlu membuat filter yang membatasi target_date dalam range bulan yang dilihat.
+      // Filter OR harus mencakup kedua kondisi:
+      // 1. target_date berada dalam bulan yang dipilih
+      // 2. target_date adalah NULL (ongoing goal)
+      query = query.or(`and(target_date.gte.${startDate},target_date.lte.${endDate}),target_date.is.null`);
+    }
+    // === [AKHIR PERBAIKAN] ===
 
     const { data, error } = await query;
 
@@ -71,7 +68,7 @@ const createSavingsGoal = async (req, res) => {
 // Menambahkan dana ke tabungan (Memanggil Fungsi RPC)
 const addFundsToSavings = async (req, res) => {
   try {
-    const supabaseAuth = createAuthClient(req.token);
+    const supabaseAuth = createAuthClient(req.token); 
     const { goal_id, amount, date } = req.body;
 
     const { error } = await supabaseAuth.rpc('add_to_savings', {
