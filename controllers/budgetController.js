@@ -23,7 +23,7 @@ const getBudgets = async (req, res) => {
   }
 };
 
-// === [FUNGSI CREATE/UPDATE DIMODIFIKASI] ===
+// createOrUpdateBudget (Tidak berubah)
 const createOrUpdateBudget = async (req, res) => {
   try {
     const { amount, month, year, category_name } = req.body;
@@ -39,8 +39,6 @@ const createOrUpdateBudget = async (req, res) => {
 
     let result;
     
-    // [MODIFIKASI] Jika amount 0, kita hapus saja budgetnya
-    // Ini menangani "reset value budget"
     if (existingBudget && parseFloat(amount) === 0) {
       result = await supabase
         .from('budgets')
@@ -49,7 +47,6 @@ const createOrUpdateBudget = async (req, res) => {
         .select()
         .single();
     } else if (existingBudget) {
-      // JIKA SUDAH ADA & amount > 0: UPDATE
       result = await supabase
         .from('budgets')
         .update({
@@ -60,7 +57,6 @@ const createOrUpdateBudget = async (req, res) => {
         .select()
         .single();
     } else if (!existingBudget && parseFloat(amount) > 0) {
-      // JIKA BELUM ADA & amount > 0: INSERT
       result = await supabase
         .from('budgets')
         .insert([
@@ -75,7 +71,6 @@ const createOrUpdateBudget = async (req, res) => {
         .select()
         .single();
     } else {
-      // Kasus: Buat budget baru dengan amount 0, tidak perlu_
       return res.status(200).json({
         success: true,
         message: 'Budget set to 0, no entry created.',
@@ -99,63 +94,34 @@ const createOrUpdateBudget = async (req, res) => {
 };
 
 // === [FUNGSI DELETE DIMODIFIKASI TOTAL] ===
+// Perilaku berbahaya telah dihapus.
+// Fungsi ini sekarang HANYA menghapus budget, tidak lagi menghapus transaksi.
 const deleteBudget = async (req, res) => {
   try {
     const { id } = req.params; // ID dari budget
 
-    // 1. Ambil detail budget untuk tahu apa yang harus dihapus
-    const { data: budget, error: findError } = await supabase
+    const { data, error } = await supabase
       .from('budgets')
-      .select('id, user_id, category_name, month, year')
+      .delete()
       .eq('id', id)
-      .eq('user_id', req.user.id)
+      .eq('user_id', req.user.id) // Pastikan hanya pemilik yang bisa hapus
+      .select()
       .single();
 
-    if (findError) {
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    if (!data) {
       return res.status(404).json({
         success: false,
         error: 'Budget not found or user not authorized'
       });
     }
 
-    // 2. Tentukan rentang tanggal
-    const startDate = new Date(budget.year, budget.month - 1, 1).toISOString();
-    const endDate = new Date(budget.year, budget.month, 0).toISOString();
-
-    // 3. Hapus semua transaksi yang cocok (SESUAI PERMINTAAN)
-    const { error: txError } = await supabase
-      .from('transactions')
-      .delete()
-      .eq('user_id', req.user.id)
-      .eq('category', budget.category_name)
-      .gte('date', startDate)
-      .lte('date', endDate);
-
-    if (txError) {
-      console.error("Transaction deletion part failed:", txError.message);
-      return res.status(500).json({
-        success: false,
-        error: `Failed to delete related transactions: ${txError.message}`
-      });
-    }
-
-    // 4. Hapus budget pocket itu sendiri
-    const { error: budgetError } = await supabase
-      .from('budgets')
-      .delete()
-      .eq('id', id);
-
-    if (budgetError) {
-      console.error("Budget deletion part failed:", budgetError.message);
-      return res.status(500).json({
-        success: false,
-        error: `Failed to delete budget: ${budgetError.message}`
-      });
-    }
-
     res.json({
       success: true,
-      message: `Budget and related transactions for '${budget.category_name}' deleted successfully`
+      message: `Budget pocket deleted successfully`
     });
 
   } catch (error) {
