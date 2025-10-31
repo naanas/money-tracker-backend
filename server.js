@@ -38,6 +38,8 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.set('trust proxy', 1);
+
 // API info
 app.get('/', (req, res) => {
   res.json({
