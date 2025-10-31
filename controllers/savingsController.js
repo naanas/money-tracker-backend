@@ -5,30 +5,15 @@ const getSavingsGoals = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
-    // [MODIFIKASI] Ambil query parameters month dan year
-    const { month, year } = req.query;
+    // [MODIFIKASI] Hapus filter bulan, tampilkan SEMUA goals
+    // Goal harus selalu ditampilkan terlepas dari bulan yang dipilih.
 
     let query = supabaseAuth
       .from('savings_goals')
       .select('*')
       .order('created_at', { ascending: false });
 
-    // === [PERBAIKAN LOGIKA FILTERING] ===
-    if (month && year) {
-      const currentYear = parseInt(year);
-      const currentMonth = parseInt(month);
-
-      // Hitung tanggal awal dan akhir bulan yang dipilih
-      const startDate = new Date(currentYear, currentMonth - 1, 1).toISOString().split('T')[0];
-      const endDate = new Date(currentYear, currentMonth, 0).toISOString().split('T')[0];
-      
-      // Kita perlu membuat filter yang membatasi target_date dalam range bulan yang dilihat.
-      // Filter OR harus mencakup kedua kondisi:
-      // 1. target_date berada dalam bulan yang dipilih
-      // 2. target_date adalah NULL (ongoing goal)
-      query = query.or(`and(target_date.gte.${startDate},target_date.lte.${endDate}),target_date.is.null`);
-    }
-    // === [AKHIR PERBAIKAN] ===
+    // Logika filtering bulan/tahun di sini dihapus karena goals harus selalu ditampilkan
 
     const { data, error } = await query;
 

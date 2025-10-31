@@ -28,6 +28,9 @@ const createOrUpdateBudget = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { amount, month, year, category_name } = req.body;
+    
+    // [Perbaikan] Parsing amount di awal
+    const finalAmount = parseFloat(amount) || 0;
 
     const { data: existingBudget } = await supabaseAuth
       .from('budgets')
@@ -39,31 +42,38 @@ const createOrUpdateBudget = async (req, res) => {
       .single();
 
     let result;
-    
-    if (existingBudget && parseFloat(amount) === 0) {
+    let message = 'Budget is 0, no entry created or updated.'; // Default message
+
+    // [MODIFIKASI] Logika baru untuk DELETE, UPDATE, atau CREATE
+    if (existingBudget && finalAmount === 0) { 
+      // Kasus 1: Budget sudah ada dan di-reset ke 0 -> Hapus
       result = await supabaseAuth
         .from('budgets')
         .delete()
         .eq('id', existingBudget.id)
         .select()
         .single();
-    } else if (existingBudget) {
+      message = 'Budget reset successfully';
+    } else if (existingBudget && finalAmount > 0) {
+      // Kasus 2: Budget sudah ada dan di-update
       result = await supabaseAuth
         .from('budgets')
         .update({
-          amount: parseFloat(amount),
+          amount: finalAmount,
           updated_at: new Date().toISOString()
         })
         .eq('id', existingBudget.id)
         .select()
         .single();
-    } else if (!existingBudget && parseFloat(amount) > 0) {
+      message = 'Budget updated successfully';
+    } else if (!existingBudget && finalAmount > 0) {
+      // Kasus 3: Budget belum ada dan di-create
       result = await supabaseAuth
         .from('budgets')
         .insert([
           {
             user_id: req.user.id, // RLS Policy (WITH CHECK) akan memvalidasi ini
-            amount: parseFloat(amount),
+            amount: finalAmount,
             month: parseInt(month),
             year: parseInt(year),
             category_name: category_name
@@ -71,10 +81,12 @@ const createOrUpdateBudget = async (req, res) => {
         ])
         .select()
         .single();
+      message = 'Budget created successfully';
     } else {
+      // Kasus 4: Budget belum ada dan amount-nya 0 (Tidak ada yang dilakukan)
       return res.status(200).json({
         success: true,
-        message: 'Budget set to 0, no entry created.',
+        message: message,
         data: null
       });
     }
@@ -83,9 +95,9 @@ const createOrUpdateBudget = async (req, res) => {
       return res.status(500).json({ success: false, error: result.error.message });
     }
 
-    res.status(existingBudget ? 200 : 201).json({
+    res.status(message.includes('created') ? 201 : 200).json({
       success: true,
-      message: existingBudget ? 'Budget updated successfully' : 'Budget created successfully',
+      message: message,
       data: result.data
     });
   } catch (error) {

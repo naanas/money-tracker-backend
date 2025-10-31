@@ -94,7 +94,7 @@ const validateTransaction = (req, res, next) => {
 
   // === [FUNGSI SAVINGS GOAL DIMODIFIKASI] ===
   const validateSavingsGoal = (req, res, next) => {
-    const { name, target_amount, target_date } = req.body; // <-- MODIFIKASI: Ambil target_date
+    const { name, target_amount, target_date } = req.body; 
 
     if (!name || typeof name !== 'string' || name.trim() === '') {
       return res.status(400).json({
@@ -103,7 +103,10 @@ const validateTransaction = (req, res, next) => {
       });
     }
     
-    if (!target_amount || isNaN(target_amount) || parseFloat(target_amount) <= 0) {
+    // [PERBAIKAN] Pastikan target_amount adalah angka positif yang valid
+    const parsedAmount = parseFloat(target_amount);
+    
+    if (isNaN(parsedAmount) || parsedAmount <= 0) { 
       return res.status(400).json({
         success: false,
         error: 'Target jumlah harus angka positif'
@@ -111,11 +114,19 @@ const validateTransaction = (req, res, next) => {
     }
 
     // [BARU] Validasi target_date (opsional, tapi jika diisi tidak boleh di masa lalu)
-    if (target_date && new Date(target_date) < new Date(new Date().setHours(0,0,0,0))) {
-      return res.status(400).json({
-        success: false,
-        error: 'Tanggal target tidak boleh di masa lalu'
-      });
+    if (target_date) {
+      // Konversi tanggal yang dikirim ke tanggal yang hanya memiliki bagian hari,
+      // untuk menghindari masalah zona waktu saat membandingkan dengan hari ini
+      const dateOnly = new Date(target_date).toISOString().split('T')[0];
+      const todayOnly = new Date().toISOString().split('T')[0];
+      
+      // Jika tanggal target adalah MASA LALU (lebih kecil dari HARI INI)
+      if (new Date(dateOnly) < new Date(todayOnly)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Tanggal target tidak boleh di masa lalu'
+        });
+      }
     }
     
     next();
