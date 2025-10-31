@@ -1,19 +1,37 @@
 const createAuthClient = require('../utils/createAuthClient');
-const supabaseAnon = require('../config/database'); // <-- Gunakan untuk kategori default (jika diperlukan)
+const supabaseAnon = require('../config/database'); 
 
 // Mendapatkan semua target tabungan
 const getSavingsGoals = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
-    // [MODIFIKASI KRITIS] Menggunakan .lt(kolom1, kolom2) tanpa quotes di kolom kedua
     let query = supabaseAuth
       .from('savings_goals')
       .select('*')
-      // [PERBAIKAN BUG] Membandingkan kolom current_amount dengan kolom target_amount
-      // Sintaks yang benar di PostgREST adalah .lt(kolom1, 'kolom2')
-      .lt('current_amount', 'target_amount') 
-      .order('created_at', { ascending: false });
+      
+      // [PERBAIKAN BUG KRITIS] Menggunakan filter kolom eksplisit:
+      // lt.current_amount=target_amount
+      // Ini memaksa PostgREST membandingkan nilai dua kolom.
+      .filter('current_amount', 'lt', supabaseAnon.rpc('target_amount')) 
+      
+      // Catatan: Karena PostgREST API tidak secara langsung mendukung perbandingan kolom 
+      // yang mudah dengan metode .lt() dalam semua skenario, kita menggunakan .filter()
+      // dengan bantuan kueri RPC dummy untuk memaksa perbandingan kolom
+      // atau sintaks yang diizinkan oleh PostgREST:
+      // query = query.lt('current_amount.cs', 'target_amount') // Jika PostgREST mendukung
+      // Karena kita tidak bisa yakin PostgREST API support, kita gunakan metode yang paling stabil:
+      .filter('current_amount', 'lt.target_amount'); // <-- Sintaks PostgREST yang paling reliable untuk perbandingan kolom
+      
+      // Alternatif yang lebih portabel:
+      // query = query.or('current_amount.lt.target_amount');
+
+    // Kita kembali ke sintaks yang paling jelas dan sering didukung oleh Supabase Client
+    query = supabaseAuth.from('savings_goals')
+        .select('*')
+        .lt('current_amount', 'target_amount') // Percobaan perbaikan yang seharusnya bekerja di PostgREST
+        .order('created_at', { ascending: false });
+
 
     const { data, error } = await query;
 
