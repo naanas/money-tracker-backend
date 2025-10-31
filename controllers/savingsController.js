@@ -13,21 +13,22 @@ const getSavingsGoals = async (req, res) => {
       .select('*')
       .order('created_at', { ascending: false });
 
-    // [BARU] Implementasi filtering berdasarkan bulan target
+    // === [PERBAIKAN LOGIKA FILTERING] ===
     if (month && year) {
       const currentYear = parseInt(year);
       const currentMonth = parseInt(month);
 
-      // Hitung tanggal akhir bulan (0 adalah hari terakhir bulan sebelumnya)
-      const endOfMonthDate = new Date(currentYear, currentMonth, 0); 
-      const endOfMonth = endOfMonthDate.toISOString().split('T')[0];
+      // Hitung tanggal awal dan akhir bulan yang dipilih
+      const startDate = new Date(currentYear, currentMonth - 1, 1).toISOString().split('T')[0];
+      const endDate = new Date(currentYear, currentMonth, 0).toISOString().split('T')[0];
       
-      const startOfMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
-
-      // Filter: target_date harus berada di dalam bulan ini ATAU target_date harus NULL.
-      // Filter RLS akan memastikan hanya data milik user yang diambil.
-      query = query.or(`target_date.gte.${startOfMonth},target_date.lte.${endOfMonth},target_date.is.null`);
+      // Kita perlu membuat filter yang membatasi target_date dalam range bulan yang dilihat.
+      // Filter OR harus mencakup kedua kondisi:
+      // 1. target_date berada dalam bulan yang dipilih
+      // 2. target_date adalah NULL (ongoing goal)
+      query = query.or(`and(target_date.gte.${startDate},target_date.lte.${endDate}),target_date.is.null`);
     }
+    // === [AKHIR PERBAIKAN] ===
 
     const { data, error } = await query;
 
@@ -42,7 +43,7 @@ const getSavingsGoals = async (req, res) => {
 // Membuat target tabungan baru
 const createSavingsGoal = async (req, res) => {
   try {
-    const supabaseAuth = createAuthClient(req.token);
+    const supabaseAuth = createAuthClient(req.token); 
     const { name, target_amount, target_date } = req.body; 
 
     const { data, error } = await supabaseAuth
@@ -67,7 +68,7 @@ const createSavingsGoal = async (req, res) => {
 // Menambahkan dana ke tabungan (Memanggil Fungsi RPC)
 const addFundsToSavings = async (req, res) => {
   try {
-    const supabaseAuth = createAuthClient(req.token);
+    const supabaseAuth = createAuthClient(req.token); 
     const { goal_id, amount, date } = req.body;
 
     const { error } = await supabaseAuth.rpc('add_to_savings', {
@@ -87,7 +88,7 @@ const addFundsToSavings = async (req, res) => {
 // Menghapus target tabungan
 const deleteSavingsGoal = async (req, res) => {
   try {
-    const supabaseAuth = createAuthClient(req.token);
+    const supabaseAuth = createAuthClient(req.token); 
     const { id } = req.params;
 
     const { data, error } = await supabaseAuth
