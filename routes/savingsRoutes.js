@@ -6,23 +6,20 @@ const {
   deleteSavingsGoal
 } = require('../controllers/savingsController');
 const { authenticateUser } = require('../middleware/authMiddleware');
-const { validateSavingsGoal, validateSavingsAddFunds } = require('../middleware/validationMiddleware');
+// [MODIFIKASI] Ubah validator
+const { 
+  validateSavingsGoal, 
+  validateSavingsAddFunds 
+} = require('../middleware/validationMiddleware');
 
 const router = express.Router();
 
-// Semua rute di sini dilindungi
 router.use(authenticateUser);
-
-// GET /api/savings/
 router.get('/', getSavingsGoals);
-
-// POST /api/savings/
 router.post('/', validateSavingsGoal, createSavingsGoal);
-
-// POST /api/savings/add
+// [MODIFIKASI] Pastikan validateSavingsAddFunds mengizinkan field baru (atau hapus jika validasi account_id ada di controller)
+// Kita akan mengandalkan validasi di controller
 router.post('/add', validateSavingsAddFunds, addFundsToSavings);
-
-// DELETE /api/savings/:id
 router.delete('/:id', deleteSavingsGoal);
 
 module.exports = router;

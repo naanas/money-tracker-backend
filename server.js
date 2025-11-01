@@ -14,7 +14,8 @@ const transactionRoutes = require('./routes/transactionRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const budgetRoutes = require('./routes/budgetRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
-const savingsRoutes = require('./routes/savingsRoutes'); // <-- [BARU] Impor rute tabungan
+const savingsRoutes = require('./routes/savingsRoutes'); 
+const accountRoutes = require('./routes/accountRoutes'); // <-- [BARU] Impor rute akun
 
 const app = express();
 
@@ -57,7 +58,8 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/budgets', budgetRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/savings', savingsRoutes); // <-- [BARU] Daftarkan rute tabungan
+app.use('/api/savings', savingsRoutes);
+app.use('/api/accounts', accountRoutes); // <-- [BARU] Daftarkan rute akun
 
 // Error handling
 app.use(notFound);

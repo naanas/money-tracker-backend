@@ -2,7 +2,7 @@ const { TRANSACTION_TYPES } = require('../utils/constants');
 
 const validateTransaction = (req, res, next) => {
     // ... (validateTransaction tidak berubah) ...
-    const { amount, category, type } = req.body;
+    const { amount, category, type, account_id } = req.body; // [TAMBAH] account_id
   
     if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
       return res.status(400).json({
@@ -23,6 +23,14 @@ const validateTransaction = (req, res, next) => {
         success: false,
         error: 'Type must be either "income" or "expense"'
       });
+    }
+
+    // [BARU] Validasi account_id untuk non-transfer
+    if (!account_id) {
+        return res.status(400).json({
+            success: false,
+            error: 'Account ID is required'
+        });
     }
   
     next();
@@ -92,8 +100,8 @@ const validateTransaction = (req, res, next) => {
     next();
   };
 
-  // === [FUNGSI SAVINGS GOAL DIMODIFIKASI] ===
   const validateSavingsGoal = (req, res, next) => {
+    // ... (validateSavingsGoal tidak berubah) ...
     const { name, target_amount, target_date } = req.body; 
 
     if (!name || typeof name !== 'string' || name.trim() === '') {
@@ -103,7 +111,6 @@ const validateTransaction = (req, res, next) => {
       });
     }
     
-    // [PERBAIKAN] Pastikan target_amount adalah angka positif yang valid
     const parsedAmount = parseFloat(target_amount);
     
     if (isNaN(parsedAmount) || parsedAmount <= 0) { 
@@ -113,14 +120,10 @@ const validateTransaction = (req, res, next) => {
       });
     }
 
-    // [BARU] Validasi target_date (opsional, tapi jika diisi tidak boleh di masa lalu)
     if (target_date) {
-      // Konversi tanggal yang dikirim ke tanggal yang hanya memiliki bagian hari,
-      // untuk menghindari masalah zona waktu saat membandingkan dengan hari ini
       const dateOnly = new Date(target_date).toISOString().split('T')[0];
       const todayOnly = new Date().toISOString().split('T')[0];
       
-      // Jika tanggal target adalah MASA LALU (lebih kecil dari HARI INI)
       if (new Date(dateOnly) < new Date(todayOnly)) {
         return res.status(400).json({
           success: false,
@@ -152,11 +155,47 @@ const validateTransaction = (req, res, next) => {
     
     next();
   };
+
+  // === [FUNGSI BARU] ===
+  const validateAccount = (req, res, next) => {
+    const { name, type, initial_balance } = req.body;
+
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      return res.status(400).json({ success: false, error: 'Nama akun harus diisi' });
+    }
+    if (!type || !['Bank', 'E-Wallet', 'Tunai', 'Lainnya'].includes(type)) {
+      return res.status(400).json({ success: false, error: 'Tipe akun tidak valid' });
+    }
+    if (initial_balance === null || initial_balance === undefined || isNaN(initial_balance)) {
+      return res.status(400).json({ success: false, error: 'Initial balance harus angka (boleh 0)' });
+    }
+    next();
+  };
+
+  const validateTransfer = (req, res, next) => {
+    const { from_account_id, to_account_id, amount, date } = req.body;
+
+    if (!from_account_id || !to_account_id) {
+        return res.status(400).json({ success: false, error: 'Akun asal dan tujuan harus diisi' });
+    }
+    if (from_account_id === to_account_id) {
+        return res.status(400).json({ success: false, error: 'Akun asal dan tujuan tidak boleh sama' });
+    }
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+        return res.status(400).json({ success: false, error: 'Jumlah harus angka positif' });
+    }
+     if (!date) {
+        return res.status(400).json({ success: false, error: 'Tanggal harus diisi' });
+    }
+    next();
+  };
   
   module.exports = {
       validateTransaction,
       validateBudget,
       validateCategory,
       validateSavingsGoal,      
-      validateSavingsAddFunds     
+      validateSavingsAddFunds,
+      validateAccount, // [BARU]
+      validateTransfer // [BARU]
     };
