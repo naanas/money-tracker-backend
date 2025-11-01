@@ -1,26 +1,37 @@
 const createAuthClient = require('../utils/createAuthClient');
-const { SAVINGS_CATEGORY_NAME } = require('../utils/constants'); // [BARU]
+const { SAVINGS_CATEGORY_NAME } = require('../utils/constants'); 
 
 const getAllTransactions = async (req, res) => {
   try {
-    const { page = 1, limit = 50, type, category, month, year, account_id } = req.query; // [TAMBAH] account_id
+    const { page = 1, limit = 50, type, category, month, year, account_id } = req.query; 
     const supabaseAuth = createAuthClient(req.token);
 
     const effectiveLimit = Math.min(parseInt(limit) || 50, 100);
     const effectivePage = parseInt(page) || 1;
     const startIndex = (effectivePage - 1) * effectiveLimit;
 
+    // === [BLOK PERBAIKAN] ===
+    // Query lama (ambigu): .select('*, accounts!left(name, type)')
+    //
+    // Query baru (spesifik):
+    // Kita beri nama 'accounts' pada hasil join
+    // dan kita tentukan join-nya HARUS menggunakan foreign key 'account_id'
+    
     let query = supabaseAuth
       .from('transactions')
-      .select('*, accounts!left(name, type)') // [MODIFIKASI] Join dengan tabel accounts
+      .select(`
+        *, 
+        accounts:account_id!left(name, type),
+        destination_accounts:destination_account_id!left(name, type)
+      `)
       // RLS akan menangani ini
       .order('date', { ascending: false })
       .range(startIndex, startIndex + effectiveLimit - 1);
+    // === [AKHIR PERBAIKAN] ===
 
     if (type) query = query.eq('type', type);
     if (category) query = query.eq('category', category);
     
-    // [BARU] Filter berdasarkan akun
     if (account_id) {
         query = query.or(`account_id.eq.${account_id},destination_account_id.eq.${account_id}`);
     }
@@ -34,6 +45,8 @@ const getAllTransactions = async (req, res) => {
     const { data: transactions, error, count } = await query;
 
     if (error) {
+      // Log error yang lebih baik
+      console.error('Supabase query error in getAllTransactions:', error);
       return res.status(500).json({ success: false, error: error.message });
     }
 
@@ -58,21 +71,20 @@ const getAllTransactions = async (req, res) => {
 const createTransaction = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
-    // [MODIFIKASI] Ambil account_id
     const { amount, category, description, type, date, receipt_url, account_id } = req.body;
 
     const { data: transaction, error } = await supabaseAuth
       .from('transactions')
       .insert([
         {
-          user_id: req.user.id, // RLS Policy (WITH CHECK) akan memvalidasi ini
+          user_id: req.user.id, 
           amount: parseFloat(amount),
           category,
           description: description || '',
           type,
           date: date || new Date().toISOString(),
           receipt_url: receipt_url || null,
-          account_id: account_id // [MODIFIKASI] Simpan account_id
+          account_id: account_id 
         }
       ])
       .select()
@@ -93,7 +105,6 @@ const createTransaction = async (req, res) => {
   }
 };
 
-// === [FUNGSI BARU] ===
 const createTransfer = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -101,7 +112,6 @@ const createTransfer = async (req, res) => {
     const userId = req.user.id;
     const parsedAmount = parseFloat(amount);
 
-    // Buat 2 transaksi dalam satu batch
     const { data, error } = await supabaseAuth
       .from('transactions')
       .insert([
@@ -109,23 +119,23 @@ const createTransfer = async (req, res) => {
         {
           user_id: userId,
           amount: parsedAmount,
-          category: 'Transfer', // Kategori khusus
+          category: 'Transfer', 
           type: 'expense',
           description: description || 'Transfer Keluar',
           date: date,
           account_id: from_account_id,
-          destination_account_id: to_account_id // Tautkan ke tujuan
+          destination_account_id: to_account_id 
         },
         // 2. Pemasukan ke akun tujuan
         {
           user_id: userId,
           amount: parsedAmount,
-          category: 'Transfer', // Kategori khusus
+          category: 'Transfer', 
           type: 'income',
           description: description || 'Transfer Masuk',
           date: date,
           account_id: to_account_id,
-          destination_account_id: from_account_id // Tautkan ke asal
+          destination_account_id: from_account_id 
         }
       ])
       .select();
@@ -151,8 +161,7 @@ const updateTransaction = async (req, res) => {
     const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params;
     const updates = req.body;
-
-    // [MODIFIKASI] Pastikan user_id tidak terupdate
+    
     delete updates.user_id;
 
     const { data: transaction, error } = await supabaseAuth
@@ -162,7 +171,6 @@ const updateTransaction = async (req, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
-      // RLS akan menangani ini
       .select()
       .single();
 
@@ -197,7 +205,6 @@ const deleteTransaction = async (req, res) => {
       .from('transactions')
       .delete()
       .eq('id', id)
-      // RLS akan menangani ini
       .select()
       .single();
 
@@ -227,7 +234,6 @@ const resetTransactions = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
 
-    // RLS akan membatasi delete() hanya ke data milik user
     const { error } = await supabaseAuth
       .from('transactions')
       .delete()
@@ -237,7 +243,6 @@ const resetTransactions = async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
     
-    // [BARU] Hapus juga semua data tabungan terkait
     await supabaseAuth
       .from('savings_goals')
       .update({ current_amount: 0 });
@@ -253,25 +258,21 @@ const resetTransactions = async (req, res) => {
   }
 };
 
-// [PERBAIKAN] Modifikasi RPC 'add_to_savings' untuk menyertakan account_id
 const addFundsToSavings = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token); 
-    // [MODIFIKASI] Ambil account_id
     const { goal_id, amount, date, account_id } = req.body;
 
-    // [VALIDASI] Pastikan account_id ada
     if (!account_id) {
       return res.status(400).json({ success: false, error: 'Akun sumber (account_id) harus diisi' });
     }
 
-    // [MODIFIKASI] Panggil RPC baru (Anda harus mengupdate fungsi RPC di Supabase)
-    // SQL untuk fungsi RPC baru ada di bawah
+    // Pastikan Anda sudah meng-update fungsi RPC di Supabase
     const { error } = await supabaseAuth.rpc('add_to_savings_from_account', {
       goal_id_input: goal_id,
       amount_to_add: parseFloat(amount),
       transaction_date_input: date || new Date().toISOString().split('T')[0],
-      account_id_input: account_id // [BARU]
+      account_id_input: account_id 
     });
 
     if (error) throw error;
@@ -286,9 +287,9 @@ const addFundsToSavings = async (req, res) => {
 module.exports = {
   getAllTransactions,
   createTransaction,
-  createTransfer, // [BARU]
+  createTransfer, 
   updateTransaction,
   deleteTransaction,
   resetTransactions,
-  addFundsToSavings // [MODIFIKASI]
+  addFundsToSavings
 };
