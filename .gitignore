@@ -1,0 +1,23 @@
+# Folder dependensi
+# Ini adalah baris terpenting untuk mengabaikan node_modules
+node_modules/
+
+# File Log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Folder build/output
+dist/
+build/
+.out/
+
+# File sistem operasi
+.DS_Store
+Thumbs.db
+
+# File editor (opsional, tapi disarankan)
+.vscode/
+.idea/
