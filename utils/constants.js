@@ -8,6 +8,9 @@ const TRANSACTION_TYPES = {
     PREMIUM: 'premium'
   };
   
+  // [BARU] Tambahkan konstanta untuk kategori tabungan
+  const SAVINGS_CATEGORY_NAME = 'Tabungan';
+
   const DEFAULT_CATEGORIES = [
     // Expense categories
     'Food & Dining', 'Transportation', 'Shopping', 'Entertainment',
@@ -26,5 +29,6 @@ const TRANSACTION_TYPES = {
     TRANSACTION_TYPES,
     SUBSCRIPTION_TIERS,
     DEFAULT_CATEGORIES,
-    PAGINATION
+    PAGINATION,
+    SAVINGS_CATEGORY_NAME // [BARU] Ekspor konstanta
   };

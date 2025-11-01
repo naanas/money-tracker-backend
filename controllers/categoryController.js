@@ -1,33 +1,23 @@
 const createAuthClient = require('../utils/createAuthClient');
-const supabase = require('../config/database'); // <-- Masih dipakai untuk kategori default
+// [PERBAIKAN] Supabase anon tidak lagi diperlukan di sini
+// const supabase = require('../config/database'); 
 
 const getAllCategories = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
-    // Kategori default (user_id IS NULL) tidak akan terambil jika pakai RLS
-    // Jadi kita harus menggabungkan 2 query
+    // === [BLOK PERBAIKAN] ===
+    // Dengan RLS policy (user_id = auth.uid()) OR (user_id IS NULL),
+    // kita bisa mengambil kategori custom DAN default dalam satu panggilan
     
-    // 1. Ambil kategori custom milik user (via RLS)
-    const { data: customCategories, error: customError } = await supabaseAuth
+    const { data: categories, error } = await supabaseAuth
       .from('categories')
       .select('*')
-      // .eq('user_id', req.user.id) // Dihapus, RLS menangani
+      // RLS akan menangani filter user_id ATAU user_id IS NULL
       .order('name');
       
-    if (customError) throw customError;
-
-    // 2. Ambil kategori default (via anon client)
-    const { data: defaultCategories, error: defaultError } = await supabase
-      .from('categories')
-      .select('*')
-      .is('user_id', null)
-      .order('name');
-
-    if (defaultError) throw defaultError;
-
-    // 3. Gabungkan
-    const categories = [...defaultCategories, ...customCategories];
+    if (error) throw error;
+    // === [AKHIR BLOK PERBAIKAN] ===
 
     res.json({ success: true, data: categories });
   } catch (error) {
@@ -87,7 +77,7 @@ const updateCategory = async (req, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
-      // [DIHAPUS] .eq('user_id', req.user.id) // RLS akan menangani ini
+      // .eq('user_id', req.user.id) // RLS akan menangani ini
       .select()
       .single();
 
