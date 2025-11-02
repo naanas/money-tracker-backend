@@ -2,57 +2,10 @@ const supabase = require('../config/database');
 const createAuthClient = require('../utils/createAuthClient'); // [BARU]
 const { SAVINGS_CATEGORY_NAME } = require('../utils/constants');
 
-// [FUNGSI BARU]
-const getAccountBalances = async (req, res) => {
-  try {
-    const supabaseAuth = createAuthClient(req.token);
-    
-    // 1. Ambil semua akun
-    const { data: accounts, error: accountsError } = await supabaseAuth
-      .from('accounts')
-      .select('id, name, type, initial_balance');
-    
-    if (accountsError) throw accountsError;
-
-    // 2. Ambil semua transaksi
-    const { data: transactions, error: txError } = await supabaseAuth
-      .from('transactions')
-      .select('amount, type, account_id, destination_account_id');
-      
-    if (txError) throw txError;
-
-    // 3. Kalkulasi saldo di server
-    const balances = {};
-    for (const acc of accounts) {
-      let balance = parseFloat(acc.initial_balance);
-      
-      // Filter transaksi untuk akun ini
-      const relevantTransactions = transactions.filter(
-        t => t.account_id === acc.id || t.destination_account_id === acc.id
-      );
-      
-      for (const t of relevantTransactions) {
-        const amount = parseFloat(t.amount);
-        if (t.account_id === acc.id && t.type === 'income') {
-          balance += amount;
-        } else if (t.account_id === acc.id && t.type === 'expense') {
-          balance -= amount;
-        }
-      }
-      
-      balances[acc.id] = {
-        ...acc,
-        current_balance: balance
-      };
-    }
-
-    res.json({ success: true, data: Object.values(balances) });
-    
-  } catch (error) {
-    console.error('Get account balances error:', error);
-    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
-  }
-};
+// === [FUNGSI getAccountBalances DIHAPUS] ===
+// Fungsi ini duplikat dari yang ada di accountController.js
+// dan tidak efisien. Cukup panggil /api/accounts.
+// ===========================================
 
 
 // [MODIFIKASI] getMonthlySummary
@@ -223,6 +176,6 @@ const getTrends = async (req, res) => {
 
 module.exports = {
   getMonthlySummary,
-  getAccountBalances, // [BARU]
-  getTrends           // [BARU]
+  // getAccountBalances, // [DIHAPUS]
+  getTrends
 };

@@ -36,6 +36,43 @@ const validateTransaction = (req, res, next) => {
     next();
   };
   
+// === [FUNGSI BARU UNTUK PERBAIKAN] ===
+// Validasi ini lebih fleksibel, hanya mengecek field yang dikirim
+const validateTransactionUpdate = (req, res, next) => {
+  const { amount, category, type, account_id } = req.body;
+
+  if (amount !== undefined && (isNaN(amount) || parseFloat(amount) <= 0)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Valid amount is required'
+    });
+  }
+
+  if (category !== undefined && typeof category !== 'string') {
+    return res.status(400).json({
+      success: false,
+      error: 'Category must be a string'
+    });
+  }
+
+  if (type !== undefined && !['income', 'expense'].includes(type)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Type must be either "income" or "expense"'
+    });
+  }
+
+  if (account_id !== undefined && !account_id) {
+      return res.status(400).json({
+          success: false,
+          error: 'Account ID cannot be empty if provided'
+      });
+  }
+
+  next();
+};
+// === [AKHIR FUNGSI BARU] ===
+
   const validateBudget = (req, res, next) => {
     // ... (validateBudget tidak berubah) ...
     const { amount, month, year, category_name } = req.body;
@@ -192,10 +229,11 @@ const validateTransaction = (req, res, next) => {
   
   module.exports = {
       validateTransaction,
+      validateTransactionUpdate, // [BARU]
       validateBudget,
       validateCategory,
       validateSavingsGoal,      
       validateSavingsAddFunds,
-      validateAccount, // [BARU]
-      validateTransfer // [BARU]
+      validateAccount, 
+      validateTransfer 
     };

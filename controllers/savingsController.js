@@ -50,16 +50,25 @@ const createSavingsGoal = async (req, res) => {
   }
 };
 
-// Menambahkan dana ke tabungan (Memanggil Fungsi RPC)
+// === [PERBAIKAN KRITIS DI SINI] ===
+// Fungsi ini diganti dengan yang benar, yang memanggil RPC baru
+// dan menangani account_id untuk membuat transaksi pengeluaran.
 const addFundsToSavings = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token); 
-    const { goal_id, amount, date } = req.body;
+    const { goal_id, amount, date, account_id } = req.body;
 
-    const { error } = await supabaseAuth.rpc('add_to_savings', {
-      goal_id: goal_id,
+    if (!account_id) {
+      return res.status(400).json({ success: false, error: 'Akun sumber (account_id) harus diisi' });
+    }
+
+    // Pastikan Anda sudah meng-update fungsi RPC di Supabase
+    // Ini adalah RPC yang benar, yang juga membuat transaksi
+    const { error } = await supabaseAuth.rpc('add_to_savings_from_account', {
+      goal_id_input: goal_id,
       amount_to_add: parseFloat(amount),
-      transaction_date: date || new Date().toISOString().split('T')[0]
+      transaction_date_input: date || new Date().toISOString().split('T')[0],
+      account_id_input: account_id 
     });
 
     if (error) throw error;
@@ -69,6 +78,8 @@ const addFundsToSavings = async (req, res) => {
     res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
+// === [AKHIR PERBAIKAN] ===
+
 
 // Menghapus target tabungan
 const deleteSavingsGoal = async (req, res) => {
