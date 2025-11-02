@@ -11,8 +11,7 @@ const { authenticateUser } = require('../middleware/authMiddleware');
 // [MODIFIKASI] Impor validator baru
 const { 
   validateTransaction, 
-  validateTransfer,
-  validateTransactionUpdate // [PERBAIKAN] Impor validator baru
+  validateTransfer 
 } = require('../middleware/validationMiddleware');
 
 const router = express.Router();
@@ -27,8 +26,7 @@ router.post('/transfer', validateTransfer, createTransfer);
 
 router.delete('/reset', resetTransactions);
 
-// [PERBAIKAN] Gunakan validator update yang lebih fleksibel
-router.put('/:id', validateTransactionUpdate, updateTransaction); 
+router.put('/:id', validateTransaction, updateTransaction);
 router.delete('/:id', deleteTransaction);
 
 module.exports = router;

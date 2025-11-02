@@ -258,8 +258,31 @@ const resetTransactions = async (req, res) => {
   }
 };
 
-// === [FUNGSI addFundsToSavings DIHAPUS DARI SINI] ===
-// ...karena sudah dipindah ke savingsController.js
+const addFundsToSavings = async (req, res) => {
+  try {
+    const supabaseAuth = createAuthClient(req.token); 
+    const { goal_id, amount, date, account_id } = req.body;
+
+    if (!account_id) {
+      return res.status(400).json({ success: false, error: 'Akun sumber (account_id) harus diisi' });
+    }
+
+    // Pastikan Anda sudah meng-update fungsi RPC di Supabase
+    const { error } = await supabaseAuth.rpc('add_to_savings_from_account', {
+      goal_id_input: goal_id,
+      amount_to_add: parseFloat(amount),
+      transaction_date_input: date || new Date().toISOString().split('T')[0],
+      account_id_input: account_id 
+    });
+
+    if (error) throw error;
+    res.json({ success: true, message: 'Dana berhasil ditambahkan ke tabungan' });
+  } catch (error) {
+    console.error('Add funds to savings error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  }
+};
+
 
 module.exports = {
   getAllTransactions,
@@ -267,6 +290,6 @@ module.exports = {
   createTransfer, 
   updateTransaction,
   deleteTransaction,
-  resetTransactions
-  // addFundsToSavings DIHAPUS DARI EXPORTS
+  resetTransactions,
+  addFundsToSavings
 };
