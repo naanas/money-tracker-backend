@@ -1,161 +1,143 @@
-const supabase = require('../config/database');
-const createAuthClient = require('../utils/createAuthClient'); // <-- BARU
+const createAuthClient = require('../utils/createAuthClient');
+// const { SAVINGS_CATEGORY_NAME } = require('../utils/constants'); // Tidak dipakai lagi di file ini
 
-const register = async (req, res) => {
+// @desc    Get all accounts for a user
+// @route   GET /api/accounts
+const getAccounts = async (req, res) => {
   try {
-    const { email, password, full_name } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Email and password are required'
-      });
-    }
-
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
-    if (authError) {
-      // Jika user sudah ada di auth, Supabase akan kirim error
-      return res.status(400).json({
-        success: false,
-        error: authError.message
-      });
-    }
-
-    // Create user profile
-    if (authData.user) {
-      
-      // === [PERBAIKAN DI SINI] ===
-      // Kita ubah dari .insert() menjadi .upsert()
-      // Ini akan meng-handle kasus jika email sudah ada di tabel 'users'
-      // tapi tidak ada di 'auth.users' (kasus orphaned profile)
-      
-      const { error: profileError } = await supabase
-        .from('users')
-        .upsert(
-          {
-            id: authData.user.id, // ID baru dari auth
-            email: authData.user.email,
-            full_name: full_name || '',
-            subscription_tier: 'free'
-          },
-          {
-            onConflict: 'email' // Jika email konflik, update saja row itu
-          }
-        );
-      // === [AKHIR PERBAIKAN] ===
-
-      if (profileError) {
-        console.error('Profile creation/upsert error:', profileError);
-        // Jika errornya BUKAN karena duplikat, tampilkan error
-        // (Meskipun upsert seharusnya sudah menangani error duplikat)
-        return res.status(400).json({
-            success: false,
-            error: `User auth created, but profile operation failed: ${profileError.message}`
-        });
-      }
-    }
-
-    res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      data: {
-        user: {
-          id: authData.user.id,
-          email: authData.user.email,
-          full_name: full_name || ''
-        },
-        session: authData.session
-      }
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
-  }
-};
-
-const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Email and password are required'
-      });
-    }
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      return res.status(401).json({
-        success: false,
-        error: error.message
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        user: {
-          id: data.user.id,
-          email: data.user.email
-        },
-        session: data.session
-      }
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
-  }
-};
-
-// [MODIFIKASI] Gunakan createAuthClient untuk fetch profile
-const getProfile = async (req, res) => {
-  try {
-    const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi
+    const supabaseAuth = createAuthClient(req.token);
     
-    const { data: user, error } = await supabaseAuth
-      .from('users')
-      .select('*')
-      .eq('id', req.user.id)
+    // 1. Panggil fungsi RPC 'get_accounts_with_balance'
+    // Perhitungan saldo 100% terjadi di database.
+    const { data: accountsWithBalance, error } = await supabaseAuth
+      .rpc('get_accounts_with_balance');
+    
+    if (error) throw error;
+
+    // 2. Langsung kirim hasilnya
+    res.json({ success: true, data: accountsWithBalance });
+    
+  } catch (error) {
+    console.error('Get accounts error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  }
+};
+
+// @desc    Create a new account
+// @route   POST /api/accounts
+const createAccount = async (req, res) => {
+  // ... (Fungsi ini tidak berubah)
+  try {
+    const supabaseAuth = createAuthClient(req.token);
+    const { name, type, initial_balance } = req.body;
+
+    const { data: account, error } = await supabaseAuth
+      .from('accounts')
+      .insert({
+        name: name.trim(),
+        type,
+        initial_balance: parseFloat(initial_balance) || 0,
+        user_id: req.user.id
+      })
+      .select()
       .single();
 
     if (error) {
-      return res.status(404).json({
-        success: false,
-        error: 'User profile not found'
-      });
+      if (error.code === '23505') { // Unique constraint violation
+        return res.status(409).json({ success: false, error: 'Anda sudah punya akun dengan nama ini.' });
+      }
+      throw error;
+    }
+    
+    res.status(201).json({ success: true, data: account });
+  } catch (error) {
+    console.error('Create account error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  }
+};
+
+// @desc    Update an account
+// @route   PUT /api/accounts/:id
+const updateAccount = async (req, res) => {
+  // ... (Fungsi ini tidak berubah)
+  try {
+    const supabaseAuth = createAuthClient(req.token);
+    const { id } = req.params;
+    const { name, type, initial_balance } = req.body;
+
+    const { data: account, error } = await supabaseAuth
+      .from('accounts')
+      .update({
+        name: name.trim(),
+        type,
+        initial_balance: parseFloat(initial_balance) || 0
+      })
+      .eq('id', id) // RLS handles user_id
+      .select()
+      .single();
+
+    if (error) {
+         if (error.code === '23505') {
+            return res.status(409).json({ success: false, error: 'Nama akun itu sudah dipakai.' });
+        }
+        throw error;
     }
 
-    res.json({
-      success: true,
-      data: user
-    });
+    if (!account) {
+      return res.status(404).json({ success: false, error: 'Akun tidak ditemukan' });
+    }
+
+    res.json({ success: true, data: account });
   } catch (error) {
-    console.error('Profile fetch error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
+    console.error('Update account error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  }
+};
+
+// @desc    Delete an account
+// @route   DELETE /api/accounts/:id
+const deleteAccount = async (req, res) => {
+  // ... (Fungsi ini tidak berubah)
+  try {
+    const supabaseAuth = createAuthClient(req.token);
+    const { id } = req.params;
+
+    // Cek apakah akun masih dipakai di transaksi
+    const { count, error: txError } = await supabaseAuth
+      .from('transactions')
+      .select('*', { count: 'exact', head: true })
+      .or(`account_id.eq.${id},destination_account_id.eq.${id}`);
+
+    if (txError) throw txError;
+    
+    if (count > 0) {
+      return res.status(409).json({ success: false, error: `Tidak bisa hapus akun. Masih ada ${count} transaksi terkait.` });
+    }
+    
+    // Hapus akun
+    const { data: account, error } = await supabaseAuth
+      .from('accounts')
+      .delete()
+      .eq('id', id) // RLS handles user_id
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    if (!account) {
+      return res.status(404).json({ success: false, error: 'Akun tidak ditemukan' });
+    }
+
+    res.json({ success: true, message: 'Akun berhasil dihapus' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
 
 module.exports = {
-  register,
-  login,
-  getProfile
+  getAccounts,
+  createAccount,
+  updateAccount,
+  deleteAccount
 };
