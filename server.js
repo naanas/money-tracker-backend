@@ -15,18 +15,31 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const budgetRoutes = require('./routes/budgetRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const savingsRoutes = require('./routes/savingsRoutes'); 
-const accountRoutes = require('./routes/accountRoutes'); // <-- [BARU] Impor rute akun
+const accountRoutes = require('./routes/accountRoutes');
 
 const app = express();
 
-// Middleware
+const corsOptions = {
+  origin: environment.clientUrl,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+
+
+app.options('*', cors(corsOptions));
+
+
+
+
+// Middleware lain
 app.use(helmet());
 app.use(compression());
 app.use(generalLimiter);
-app.use(cors({
-  origin: environment.clientUrl,
-  credentials: true
-}));
+
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -59,7 +72,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/budgets', budgetRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/savings', savingsRoutes);
-app.use('/api/accounts', accountRoutes); // <-- [BARU] Daftarkan rute akun
+app.use('/api/accounts', accountRoutes);
 
 // Error handling
 app.use(notFound);
