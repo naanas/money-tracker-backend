@@ -1,52 +1,24 @@
+// naanas/money-tracker-backend/money-tracker-backend-6b4b299fa281a79b543fdf06b86981328b3f1877/controllers/analyticsController.js
+
 const supabase = require('../config/database');
-const createAuthClient = require('../utils/createAuthClient'); // [BARU]
+const createAuthClient = require('../utils/createAuthClient'); 
 const { SAVINGS_CATEGORY_NAME } = require('../utils/constants');
 
-// [FUNGSI BARU]
+// [FUNGSI DIMODIFIKASI]
 const getAccountBalances = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
-    // 1. Ambil semua akun
-    const { data: accounts, error: accountsError } = await supabaseAuth
-      .from('accounts')
-      .select('id, name, type, initial_balance');
+    // === [PERUBAHAN DI SINI] ===
+    // Hapus logika kalkulasi manual, panggil view
+    const { data: accounts, error } = await supabaseAuth
+      .from('accounts_with_balances')
+      .select('id, name, type, initial_balance, current_balance');
     
-    if (accountsError) throw accountsError;
+    if (error) throw error;
 
-    // 2. Ambil semua transaksi
-    const { data: transactions, error: txError } = await supabaseAuth
-      .from('transactions')
-      .select('amount, type, account_id, destination_account_id');
-      
-    if (txError) throw txError;
-
-    // 3. Kalkulasi saldo di server
-    const balances = {};
-    for (const acc of accounts) {
-      let balance = parseFloat(acc.initial_balance);
-      
-      // Filter transaksi untuk akun ini
-      const relevantTransactions = transactions.filter(
-        t => t.account_id === acc.id || t.destination_account_id === acc.id
-      );
-      
-      for (const t of relevantTransactions) {
-        const amount = parseFloat(t.amount);
-        if (t.account_id === acc.id && t.type === 'income') {
-          balance += amount;
-        } else if (t.account_id === acc.id && t.type === 'expense') {
-          balance -= amount;
-        }
-      }
-      
-      balances[acc.id] = {
-        ...acc,
-        current_balance: balance
-      };
-    }
-
-    res.json({ success: true, data: Object.values(balances) });
+    res.json({ success: true, data: accounts });
+    // === [AKHIR PERUBAHAN] ===
     
   } catch (error) {
     console.error('Get account balances error:', error);
@@ -56,9 +28,10 @@ const getAccountBalances = async (req, res) => {
 
 
 // [MODIFIKASI] getMonthlySummary
+// (Fungsi ini tidak perlu diubah, karena sudah benar mengambil data dari 'accounts'
+// dan 'transactions' secara terpisah untuk logika saldo awal)
 const getMonthlySummary = async (req, res) => {
   try {
-    // [MODIFIKASI] Gunakan createAuthClient
     const supabaseAuth = createAuthClient(req.token);
     const { month, year } = req.query;
     const currentMonth = month || new Date().getMonth() + 1;
@@ -67,27 +40,40 @@ const getMonthlySummary = async (req, res) => {
     const startDate = new Date(currentYear, currentMonth - 1, 1);
     const endDate = new Date(currentYear, currentMonth, 0);
 
-    // [MODIFIKASI] Ambil data dari client ter-autentikasi
     const { data: transactions, error } = await supabaseAuth
       .from('transactions')
       .select('*')
-      // .eq('user_id', req.user.id) // RLS
       .gte('date', startDate.toISOString())
       .lte('date', endDate.toISOString());
 
     if (error) throw error;
 
-    // === [Blok Kalkulasi (Sudah diperbaiki sebelumnya)] ===
+    // 1. Ambil saldo awal dari akun yang dibuat PADA BULAN INI
+    const { data: newAccounts, error: newAccountsError } = await supabaseAuth
+      .from('accounts')
+      .select('initial_balance')
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString());
+      
+    if (newAccountsError) throw newAccountsError;
+
+    // 2. Hitung total saldo awal dari akun baru tersebut
+    const totalInitialBalanceFromNewAccounts = newAccounts
+      .reduce((sum, acc) => sum + parseFloat(acc.initial_balance), 0);
+
+    // === [Blok Kalkulasi] ===
     const regularTransactions = transactions.filter(
-      (t) => t.category !== SAVINGS_CATEGORY_NAME && t.category !== 'Transfer' // [MODIFIKASI] Kecualikan Transfer
+      (t) => t.category !== SAVINGS_CATEGORY_NAME && t.category !== 'Transfer' 
     );
     const savingsTransactions = transactions.filter(
       (t) => t.category === SAVINGS_CATEGORY_NAME
     );
 
-    const totalIncome = regularTransactions
+    const totalIncomeFromTransactions = regularTransactions
       .filter(t => t.type === 'income')
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+    const totalIncome = totalIncomeFromTransactions + totalInitialBalanceFromNewAccounts;
 
     const totalExpenses = regularTransactions
       .filter(t => t.type === 'expense')
@@ -110,10 +96,9 @@ const getMonthlySummary = async (req, res) => {
 
 
     // === [Blok Budget] ===
-    const { data: budgetDetails, error: budgetError } = await supabaseAuth // [MODIFIKASI]
+    const { data: budgetDetails, error: budgetError } = await supabaseAuth 
       .from('budgets')
       .select('id, category_name, amount') 
-      // .eq('user_id', req.user.id) // RLS
       .eq('month', parseInt(currentMonth))
       .eq('year', parseInt(currentYear))
       .neq('category_name', SAVINGS_CATEGORY_NAME); 
@@ -223,6 +208,6 @@ const getTrends = async (req, res) => {
 
 module.exports = {
   getMonthlySummary,
-  getAccountBalances, // [BARU]
-  getTrends           // [BARU]
+  getAccountBalances, 
+  getTrends           
 };
