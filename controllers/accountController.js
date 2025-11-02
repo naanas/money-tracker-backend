@@ -1,5 +1,5 @@
 const createAuthClient = require('../utils/createAuthClient');
-const { SAVINGS_CATEGORY_NAME } = require('../utils/constants');
+// const { SAVINGS_CATEGORY_NAME } = require('../utils/constants'); // Tidak dipakai lagi di file ini
 
 // @desc    Get all accounts for a user
 // @route   GET /api/accounts
@@ -7,48 +7,14 @@ const getAccounts = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     
-    // 1. Ambil semua akun (RLS handles user_id)
-    const { data: accounts, error: accountsError } = await supabaseAuth
-      .from('accounts')
-      .select('id, name, type, initial_balance')
-      .order('name');
+    // 1. Panggil fungsi RPC 'get_accounts_with_balance'
+    // Perhitungan saldo 100% terjadi di database.
+    const { data: accountsWithBalance, error } = await supabaseAuth
+      .rpc('get_accounts_with_balance');
     
-    if (accountsError) throw accountsError;
+    if (error) throw error;
 
-    // 2. Ambil semua transaksi untuk kalkulasi saldo
-    const { data: transactions, error: txError } = await supabaseAuth
-      .from('transactions')
-      .select('amount, type, account_id, destination_account_id');
-      
-    if (txError) throw txError;
-
-    // 3. Kalkulasi saldo di server
-    const accountsWithBalance = accounts.map(acc => {
-        let balance = parseFloat(acc.initial_balance);
-        
-        const relevantTransactions = transactions.filter(
-            t => t.account_id === acc.id || t.destination_account_id === acc.id
-        );
-        
-        for (const t of relevantTransactions) {
-            const amount = parseFloat(t.amount);
-            if (t.account_id === acc.id) {
-                if (t.type === 'income') balance += amount;
-                if (t.type === 'expense') balance -= amount;
-            } else if (t.destination_account_id === acc.id && t.type === 'income') {
-                // Ini adalah transfer masuk, tapi sudah dihitung di 'income' t.account_id
-                // Kita harus pastikan tidak double count.
-                // Logika sederhana: expense dari A, income ke B.
-                // Jadi, filter di atas sudah cukup.
-            }
-        }
-        
-        return {
-            ...acc,
-            current_balance: balance
-        };
-    });
-
+    // 2. Langsung kirim hasilnya
     res.json({ success: true, data: accountsWithBalance });
     
   } catch (error) {
@@ -60,6 +26,7 @@ const getAccounts = async (req, res) => {
 // @desc    Create a new account
 // @route   POST /api/accounts
 const createAccount = async (req, res) => {
+  // ... (Fungsi ini tidak berubah)
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { name, type, initial_balance } = req.body;
@@ -92,6 +59,7 @@ const createAccount = async (req, res) => {
 // @desc    Update an account
 // @route   PUT /api/accounts/:id
 const updateAccount = async (req, res) => {
+  // ... (Fungsi ini tidak berubah)
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params;
@@ -129,6 +97,7 @@ const updateAccount = async (req, res) => {
 // @desc    Delete an account
 // @route   DELETE /api/accounts/:id
 const deleteAccount = async (req, res) => {
+  // ... (Fungsi ini tidak berubah)
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params;
@@ -156,7 +125,7 @@ const deleteAccount = async (req, res) => {
     if (error) throw error;
 
     if (!account) {
-      return res.status(404).json({ success: false, error: 'Akun tidak ditemukan' });
+      return res.status(4404).json({ success: false, error: 'Akun tidak ditemukan' });
     }
 
     res.json({ success: true, message: 'Akun berhasil dihapus' });

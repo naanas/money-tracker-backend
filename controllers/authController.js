@@ -1,5 +1,5 @@
 const supabase = require('../config/database');
-const createAuthClient = require('../utils/createAuthClient');
+const createAuthClient = require('../utils/createAuthClient'); // <-- BARU
 
 const register = async (req, res) => {
   try {
@@ -28,6 +28,11 @@ const register = async (req, res) => {
     // Create user profile
     if (authData.user) {
       
+      // === [PERBAIKAN DI SINI] ===
+      // Kita ubah dari .insert() menjadi .upsert()
+      // Ini akan meng-handle kasus jika email sudah ada di tabel 'users'
+      // tapi tidak ada di 'auth.users' (kasus orphaned profile)
+      
       const { error: profileError } = await supabase
         .from('users')
         .upsert(
@@ -41,9 +46,12 @@ const register = async (req, res) => {
             onConflict: 'email' // Jika email konflik, update saja row itu
           }
         );
+      // === [AKHIR PERBAIKAN] ===
 
       if (profileError) {
         console.error('Profile creation/upsert error:', profileError);
+        // Jika errornya BUKAN karena duplikat, tampilkan error
+        // (Meskipun upsert seharusnya sudah menangani error duplikat)
         return res.status(400).json({
             success: false,
             error: `User auth created, but profile operation failed: ${profileError.message}`
@@ -115,6 +123,7 @@ const login = async (req, res) => {
   }
 };
 
+// [MODIFIKASI] Gunakan createAuthClient untuk fetch profile
 const getProfile = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi

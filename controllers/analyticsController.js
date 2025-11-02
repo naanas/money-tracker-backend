@@ -27,6 +27,7 @@ const getAccountBalances = async (req, res) => {
 // [MODIFIKASI] getMonthlySummary
 const getMonthlySummary = async (req, res) => {
   try {
+    // [MODIFIKASI] Gunakan createAuthClient
     const supabaseAuth = createAuthClient(req.token);
     const { month, year } = req.query;
     const currentMonth = month || new Date().getMonth() + 1;
@@ -35,16 +36,19 @@ const getMonthlySummary = async (req, res) => {
     const startDate = new Date(currentYear, currentMonth - 1, 1);
     const endDate = new Date(currentYear, currentMonth, 0);
 
+    // [MODIFIKASI] Ambil data dari client ter-autentikasi
     const { data: transactions, error } = await supabaseAuth
       .from('transactions')
       .select('*')
+      // .eq('user_id', req.user.id) // RLS
       .gte('date', startDate.toISOString())
       .lte('date', endDate.toISOString());
 
     if (error) throw error;
 
+    // === [Blok Kalkulasi (Sudah diperbaiki sebelumnya)] ===
     const regularTransactions = transactions.filter(
-      (t) => t.category !== SAVINGS_CATEGORY_NAME && t.category !== 'Transfer'
+      (t) => t.category !== SAVINGS_CATEGORY_NAME && t.category !== 'Transfer' // [MODIFIKASI] Kecualikan Transfer
     );
     const savingsTransactions = transactions.filter(
       (t) => t.category === SAVINGS_CATEGORY_NAME
@@ -71,11 +75,14 @@ const getMonthlySummary = async (req, res) => {
     const totalTransferredToSavings = savingsTransactions
       .filter(t => t.type === 'expense')
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    // === [AKHIR BLOK KALKULASI] ===
 
 
-    const { data: budgetDetails, error: budgetError } = await supabaseAuth
+    // === [Blok Budget] ===
+    const { data: budgetDetails, error: budgetError } = await supabaseAuth // [MODIFIKASI]
       .from('budgets')
       .select('id, category_name, amount') 
+      // .eq('user_id', req.user.id) // RLS
       .eq('month', parseInt(currentMonth))
       .eq('year', parseInt(currentYear))
       .neq('category_name', SAVINGS_CATEGORY_NAME); 
@@ -85,6 +92,7 @@ const getMonthlySummary = async (req, res) => {
     const totalBudget = budgetDetails
       ? budgetDetails.reduce((sum, b) => sum + parseFloat(b.amount), 0)
       : 0;
+    // === [AKHIR BLOK BUDGET] ===
 
     res.json({
       success: true,
