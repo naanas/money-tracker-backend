@@ -18,6 +18,7 @@ const register = async (req, res) => {
     });
 
     if (authError) {
+      // Jika user sudah ada di auth, Supabase akan kirim error
       return res.status(400).json({
         success: false,
         error: authError.message
@@ -26,22 +27,34 @@ const register = async (req, res) => {
 
     // Create user profile
     if (authData.user) {
+      
+      // === [PERBAIKAN DI SINI] ===
+      // Kita ubah dari .insert() menjadi .upsert()
+      // Ini akan meng-handle kasus jika email sudah ada di tabel 'users'
+      // tapi tidak ada di 'auth.users' (kasus orphaned profile)
+      
       const { error: profileError } = await supabase
         .from('users')
-        .insert([
+        .upsert(
           {
-            id: authData.user.id,
+            id: authData.user.id, // ID baru dari auth
             email: authData.user.email,
             full_name: full_name || '',
             subscription_tier: 'free'
+          },
+          {
+            onConflict: 'email' // Jika email konflik, update saja row itu
           }
-        ]);
+        );
+      // === [AKHIR PERBAIKAN] ===
 
       if (profileError) {
-        console.error('Profile creation error:', profileError);
+        console.error('Profile creation/upsert error:', profileError);
+        // Jika errornya BUKAN karena duplikat, tampilkan error
+        // (Meskipun upsert seharusnya sudah menangani error duplikat)
         return res.status(400).json({
             success: false,
-            error: `User auth created, but profile insertion failed: ${profileError.message}`
+            error: `User auth created, but profile operation failed: ${profileError.message}`
         });
       }
     }
