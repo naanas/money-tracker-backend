@@ -1,5 +1,5 @@
 const supabase = require('../config/database');
-const createAuthClient = require('../utils/createAuthClient'); // <-- BARU
+const createAuthClient = require('../utils/createAuthClient');
 
 const register = async (req, res) => {
   try {
@@ -18,7 +18,6 @@ const register = async (req, res) => {
     });
 
     if (authError) {
-      // Jika user sudah ada di auth, Supabase akan kirim error
       return res.status(400).json({
         success: false,
         error: authError.message
@@ -27,31 +26,22 @@ const register = async (req, res) => {
 
     // Create user profile
     if (authData.user) {
-      
-      // === [PERBAIKAN DI SINI] ===
-      // Kita ubah dari .insert() menjadi .upsert()
-      // Ini akan meng-handle kasus jika email sudah ada di tabel 'users'
-      // tapi tidak ada di 'auth.users' (kasus orphaned profile)
-      
       const { error: profileError } = await supabase
         .from('users')
         .upsert(
           {
-            id: authData.user.id, // ID baru dari auth
+            id: authData.user.id, 
             email: authData.user.email,
             full_name: full_name || '',
             subscription_tier: 'free'
           },
           {
-            onConflict: 'email' // Jika email konflik, update saja row itu
+            onConflict: 'email'
           }
         );
-      // === [AKHIR PERBAIKAN] ===
 
       if (profileError) {
         console.error('Profile creation/upsert error:', profileError);
-        // Jika errornya BUKAN karena duplikat, tampilkan error
-        // (Meskipun upsert seharusnya sudah menangani error duplikat)
         return res.status(400).json({
             success: false,
             error: `User auth created, but profile operation failed: ${profileError.message}`
@@ -123,10 +113,9 @@ const login = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] Gunakan createAuthClient untuk fetch profile
 const getProfile = async (req, res) => {
   try {
-    const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi
+    const supabaseAuth = createAuthClient(req.token); 
     
     const { data: user, error } = await supabaseAuth
       .from('users')
@@ -154,8 +143,72 @@ const getProfile = async (req, res) => {
   }
 };
 
+// === [FUNGSI BARU 1: UPDATE PROFILE] ===
+const updateProfile = async (req, res) => {
+  try {
+    const { email, full_name } = req.body;
+    const supabaseAuth = createAuthClient(req.token);
+    
+    // 1. Update data di 'auth.users' (termasuk email jika berubah)
+    const { data: authData, error: authError } = await supabaseAuth.auth.updateUser({
+      email: email,
+      data: { full_name: full_name } // Simpan full_name di metadata auth juga
+    });
+
+    if (authError) throw authError;
+
+    // 2. Update data di tabel 'public.users'
+    const { data: profileData, error: profileError } = await supabaseAuth
+      .from('users')
+      .update({
+        email: authData.user.email,
+        full_name: full_name
+      })
+      .eq('id', req.user.id)
+      .select()
+      .single();
+
+    if (profileError) throw profileError;
+
+    res.json({ success: true, message: 'Profil berhasil diperbarui. Jika Anda mengubah email, silakan cek email Anda untuk verifikasi.', data: profileData });
+
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+};
+
+// === [FUNGSI BARU 2: UPDATE PASSWORD] ===
+const updatePassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+    
+    if (!password || password.length < 8) {
+      return res.status(400).json({ success: false, error: 'Password minimal 8 karakter' });
+    }
+    
+    const supabaseAuth = createAuthClient(req.token);
+
+    // Update password di 'auth.users'
+    const { error } = await supabaseAuth.auth.updateUser({
+      password: password
+    });
+
+    if (error) throw error;
+
+    res.json({ success: true, message: 'Password berhasil diperbarui' });
+
+  } catch (error) {
+    console.error('Update password error:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+};
+
+
 module.exports = {
   register,
   login,
-  getProfile
+  getProfile,
+  updateProfile,    // [BARU]
+  updatePassword    // [BARU]
 };
