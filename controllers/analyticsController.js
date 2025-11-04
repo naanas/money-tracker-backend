@@ -89,9 +89,16 @@ const getMonthlySummary = async (req, res) => {
 
     if (budgetError) throw budgetError;
 
-    const totalBudget = budgetDetails
+    // === [PERBAIKAN UNTUK BUG FLOATING POINT] ===
+    // 1. Hitung total mentah
+    const rawTotalBudget = budgetDetails
       ? budgetDetails.reduce((sum, b) => sum + parseFloat(b.amount), 0)
       : 0;
+    
+    // 2. Bulatkan hasilnya ke angka integer terdekat
+    const totalBudget = Math.round(rawTotalBudget);
+    // === [AKHIR PERBAIKAN] ===
+
     // === [AKHIR BLOK BUDGET] ===
 
     res.json({
@@ -111,7 +118,7 @@ const getMonthlySummary = async (req, res) => {
           expense_count: regularTransactions.filter(t => t.type === 'expense').length
         },
         budget: {
-          total_amount: totalBudget, 
+          total_amount: totalBudget, // <--- NILAI YANG SUDAH DIPERBAIKI
           spent: totalExpenses,
           remaining: totalBudget - totalExpenses,
           details: budgetDetails || []
