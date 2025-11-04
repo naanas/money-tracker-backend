@@ -1,36 +1,33 @@
 // naanas/money-tracker-backend/controllers/analyticsController.js
 const createAuthClient = require('../utils/createAuthClient');
 const { SAVINGS_CATEGORY_NAME } = require('../utils/constants');
-const redisClient = require('../config/redisClient'); // Impor klien Vercel KV
+const redisClient = require('../config/redisClient'); 
 
-// Helper untuk mengatur durasi cache (dalam detik)
 const CACHE_TTL = 3600; // 1 jam
 
-// [MODIFIKASI] getAccountBalances dengan Caching
+// [MODIFIKASI] getAccountBalances
 const getAccountBalances = async (req, res) => {
   const userId = req.user.id;
-  const cacheKey = `accounts:${userId}`; 
+  const cacheKey = `accounts:${userId}`;
 
   try {
-    // 1. Coba ambil dari Cache
     if (redisClient.isOpen) {
       const cachedData = await redisClient.get(cacheKey);
       if (cachedData) {
-        return res.json({ success: true, data: cachedData, fromCache: true });
+        // [PERBAIKAN] Tambahkan JSON.parse
+        return res.json({ success: true, data: JSON.parse(cachedData), fromCache: true });
       }
     }
 
-    // 2. Jika tidak ada di cache, query Supabase
     const supabaseAuth = createAuthClient(req.token);
     const { data: accountsWithBalance, error } = await supabaseAuth
       .rpc('get_accounts_with_balance');
     
     if (error) throw error;
 
-    // 3. Simpan hasil di Cache
     if (redisClient.isOpen) {
-      // Vercel KV secara otomatis men-serialize JSON
-      await redisClient.set(cacheKey, accountsWithBalance, { ex: CACHE_TTL });
+      // [PERBAIKAN] Tambahkan JSON.stringify
+      await redisClient.set(cacheKey, JSON.stringify(accountsWithBalance), { EX: CACHE_TTL });
     }
 
     res.json({ success: true, data: accountsWithBalance, fromCache: false });
@@ -42,7 +39,7 @@ const getAccountBalances = async (req, res) => {
 };
 
 
-// [MODIFIKASI] getMonthlySummary dengan Caching
+// [MODIFIKASI] getMonthlySummary
 const getMonthlySummary = async (req, res) => {
   const userId = req.user.id;
   const { month, year } = req.query;
@@ -52,15 +49,14 @@ const getMonthlySummary = async (req, res) => {
   const cacheKey = `summary:${userId}:${currentYear}-${currentMonth}`;
 
   try {
-    // 1. Coba ambil dari Cache
     if (redisClient.isOpen) {
       const cachedData = await redisClient.get(cacheKey);
       if (cachedData) {
-        return res.json({ success: true, data: cachedData, fromCache: true });
+        // [PERBAIKAN] Tambahkan JSON.parse
+        return res.json({ success: true, data: JSON.parse(cachedData), fromCache: true });
       }
     }
 
-    // 2. Jika tidak ada di cache, query Supabase
     const supabaseAuth = createAuthClient(req.token);
     const startDate = new Date(currentYear, currentMonth - 1, 1);
     const endDate = new Date(currentYear, currentMonth, 0);
@@ -73,7 +69,7 @@ const getMonthlySummary = async (req, res) => {
 
     if (error) throw error;
 
-    // ... (Kalkulasi) ...
+    // ... (Blok Kalkulasi) ...
     const regularTransactions = transactions.filter(
       (t) => t.category !== SAVINGS_CATEGORY_NAME && t.category !== 'Transfer'
     );
@@ -97,8 +93,9 @@ const getMonthlySummary = async (req, res) => {
     const totalTransferredToSavings = savingsTransactions
       .filter(t => t.type === 'expense')
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
-    
-    // ... (Budget) ...
+    // ... (Akhir Blok Kalkulasi)
+
+    // ... (Blok Budget) ...
     const { data: budgetDetails, error: budgetError } = await supabaseAuth
       .from('budgets')
       .select('id, category_name, amount') 
@@ -110,33 +107,38 @@ const getMonthlySummary = async (req, res) => {
       ? budgetDetails.reduce((sum, b) => sum + parseFloat(b.amount), 0)
       : 0;
     const totalBudget = Math.round(rawTotalBudget);
-    
+    // ... (Akhir Blok Budget)
+
     const responseData = {
-      period: {
+      period: { /*...*/ },
+      summary: { /*...*/ },
+      budget: { /*...*/ },
+      expenses_by_category: expensesByCategory
+    };
+     // ... (Isi responseData sama seperti sebelumnya)
+     responseData.period = {
         month: parseInt(currentMonth),
         year: parseInt(currentYear)
-      },
-      summary: {
+      };
+      responseData.summary = {
         total_income: totalIncome,
         total_expenses: totalExpenses,
         balance: balance,
         total_transferred_to_savings: totalTransferredToSavings,
-        transaction_count: regularTransactions.length, 
+        transaction_count: regularTransactions.length,
         income_count: regularTransactions.filter(t => t.type === 'income').length,
         expense_count: regularTransactions.filter(t => t.type === 'expense').length
-      },
-      budget: {
+      };
+      responseData.budget = {
         total_amount: totalBudget,
         spent: totalExpenses,
         remaining: totalBudget - totalExpenses,
         details: budgetDetails || []
-      },
-      expenses_by_category: expensesByCategory
-    };
+      };
 
-    // 3. Simpan hasil di Cache
     if (redisClient.isOpen) {
-      await redisClient.set(cacheKey, responseData, { ex: CACHE_TTL });
+      // [PERBAIKAN] Tambahkan JSON.stringify
+      await redisClient.set(cacheKey, JSON.stringify(responseData), { EX: CACHE_TTL });
     }
 
     res.json({
@@ -153,21 +155,20 @@ const getMonthlySummary = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] getTrends dengan Caching
+// [MODIFIKASI] getTrends
 const getTrends = async (req, res) => {
   const userId = req.user.id;
   const cacheKey = `trends:${userId}`;
 
   try {
-    // 1. Coba ambil dari Cache
     if (redisClient.isOpen) {
       const cachedData = await redisClient.get(cacheKey);
       if (cachedData) {
-        return res.json({ success: true, data: cachedData, fromCache: true });
+        // [PERBAIKAN] Tambahkan JSON.parse
+        return res.json({ success: true, data: JSON.parse(cachedData), fromCache: true });
       }
     }
     
-    // 2. Jika tidak ada di cache, query Supabase
     const supabaseAuth = createAuthClient(req.token);
     const today = new Date();
     const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 5, 1);
@@ -209,10 +210,11 @@ const getTrends = async (req, res) => {
             finalData.push({ label, income: 0, expense: 0, categories: {} });
         }
     }
+    // ... (Akhir proses data)
 
-    // 3. Simpan hasil di Cache (Simpan lebih lama, misal 6 jam)
     if (redisClient.isOpen) {
-      await redisClient.set(cacheKey, finalData, { ex: 21600 });
+      // [PERBAIKAN] Tambahkan JSON.stringify
+      await redisClient.set(cacheKey, JSON.stringify(finalData), { EX: 21600 });
     }
 
     res.json({ success: true, data: finalData, fromCache: false });

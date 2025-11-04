@@ -1,9 +1,9 @@
 // naanas/money-tracker-backend/controllers/transactionController.js
 const createAuthClient = require('../utils/createAuthClient');
 const { SAVINGS_CATEGORY_NAME } = require('../utils/constants'); 
-const redisClient = require('../config/redisClient'); // Impor klien Vercel KV
+const redisClient = require('../config/redisClient');
 
-// [BARU] Fungsi helper untuk menghapus cache yang relevan
+// [PERBAIKAN] Helper untuk invalidation
 const invalidateTransactionCaches = async (userId, transactionDate) => {
   if (!redisClient.isOpen) return;
   
@@ -11,17 +11,15 @@ const invalidateTransactionCaches = async (userId, transactionDate) => {
   const month = date.getMonth() + 1;
   const year = date.getFullYear();
 
-  // Kunci cache yang mungkin terpengaruh oleh transaksi
-  // Vercel KV bisa menghapus banyak kunci sekaligus
+  // Kunci spesifik yang pasti terpengaruh
   const keysToDel = [
-    `accounts:${userId}`,        // Saldo akun
-    `trends:${userId}`,          // Tren 6 bulan
-    `summary:${userId}:${year}-${month}`, // Ringkasan bulan ini
-    // Kita juga hapus cache list transaksi (cara simpel)
-    // Cara lebih baik adalah menghapus key spesifik, tapi ini lebih aman
+    `accounts:${userId}`,
+    `trends:${userId}`,
+    `summary:${userId}:${year}-${month}`,
+    `savings:${userId}` // Tambahkan ini
   ];
   
-  // Hapus juga cache bulan sebelumnya jika tanggalnya di awal bulan
+  // Hapus cache bulan sebelumnya jika perlu
   if (date.getDate() < 3) {
     const prevMonthDate = new Date(year, month - 2, 1);
     const prevMonth = prevMonthDate.getMonth() + 1;
@@ -30,45 +28,44 @@ const invalidateTransactionCaches = async (userId, transactionDate) => {
   }
   
   try {
-    // Hapus semua kunci yang relevan
+    // Hapus kunci spesifik
     if (keysToDel.length > 0) {
-      await redisClient.del(...keysToDel);
+      await redisClient.del(keysToDel);
     }
     
-    // Hapus juga cache `transactions` (agak boros tapi aman)
+    // Hapus cache list transaksi (menggunakan scan)
     const transactionKeys = await redisClient.keys(`transactions:${userId}:*`);
     if (transactionKeys.length > 0) {
-      await redisClient.del(...transactionKeys);
+      await redisClient.del(transactionKeys);
     }
   } catch (err) {
     console.error("Gagal menghapus cache:", err);
   }
 };
 
-// [MODIFIKASI] getAllTransactions dengan Caching
+// [MODIFIKASI] getAllTransactions
 const getAllTransactions = async (req, res) => {
   const userId = req.user.id;
   const { page = 1, limit = 50, type, category, month, year, account_id } = req.query; 
 
   const queryParams = [page, limit, type, category, month, year, account_id].join('-');
   const cacheKey = `transactions:${userId}:${queryParams}`;
-  const CACHE_TTL_LIST = 600; // Cache daftar transaksi selama 10 menit
+  const CACHE_TTL_LIST = 600; // 10 menit
 
   try {
-    // 1. Coba ambil dari Cache
     if (redisClient.isOpen) {
       const cachedData = await redisClient.get(cacheKey);
       if (cachedData) {
-        return res.json({ success: true, data: cachedData, fromCache: true });
+        // [PERBAIKAN] Tambahkan JSON.parse
+        return res.json({ success: true, data: JSON.parse(cachedData), fromCache: true });
       }
     }
 
-    // 2. Jika tidak ada di cache, query Supabase
     const supabaseAuth = createAuthClient(req.token);
+    // ... (Logika query Supabase tetap sama) ...
     const effectiveLimit = Math.min(parseInt(limit) || 50, 100);
     const effectivePage = parseInt(page) || 1;
     const startIndex = (effectivePage - 1) * effectiveLimit;
-
     let query = supabaseAuth
       .from('transactions')
       .select(`
@@ -78,7 +75,6 @@ const getAllTransactions = async (req, res) => {
       `)
       .order('date', { ascending: false })
       .range(startIndex, startIndex + effectiveLimit - 1);
-
     if (type) query = query.eq('type', type);
     if (category) query = query.eq('category', category);
     if (account_id) {
@@ -89,8 +85,8 @@ const getAllTransactions = async (req, res) => {
       const endDate = new Date(year, month, 0);
       query = query.gte('date', startDate.toISOString()).lte('date', endDate.toISOString());
     }
-
     const { data: transactions, error, count } = await query;
+    // ... (Akhir logika query) ...
 
     if (error) {
       console.error('Supabase query error in getAllTransactions:', error);
@@ -107,9 +103,9 @@ const getAllTransactions = async (req, res) => {
       }
     };
     
-    // 3. Simpan hasil di Cache
     if (redisClient.isOpen) {
-      await redisClient.set(cacheKey, responseData, { ex: CACHE_TTL_LIST });
+      // [PERBAIKAN] Tambahkan JSON.stringify
+      await redisClient.set(cacheKey, JSON.stringify(responseData), { EX: CACHE_TTL_LIST });
     }
 
     res.json({
@@ -123,7 +119,12 @@ const getAllTransactions = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] createTransaction dengan Invalidation
+// ... (Fungsi createTransaction, createTransfer, update, delete, reset, addFundsToSavings) ...
+// Semuanya sudah benar karena MEREKA HANYA MENGHAPUS CACHE (invalidateTransactionCaches)
+// dan tidak melakukan .get() or .set()
+// Jadi, tidak perlu diubah.
+
+// [MODIFIKASI] createTransaction (pastikan invalidation dipanggil)
 const createTransaction = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -164,7 +165,7 @@ const createTransaction = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] createTransfer dengan Invalidation
+// [MODIFIKASI] createTransfer (pastikan invalidation dipanggil)
 const createTransfer = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -176,7 +177,7 @@ const createTransfer = async (req, res) => {
     const { data, error } = await supabaseAuth
       .from('transactions')
       .insert([
-        //... (insert logic)
+        // ... (insert logic)
         {
           user_id: userId,
           amount: parsedAmount,
@@ -218,7 +219,7 @@ const createTransfer = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] updateTransaction dengan Invalidation
+// [MODIFIKASI] updateTransaction (pastikan invalidation dipanggil)
 const updateTransaction = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -254,7 +255,6 @@ const updateTransaction = async (req, res) => {
     }
 
     await invalidateTransactionCaches(req.user.id, transactionDate);
-    // Hapus juga cache tanggal lama jika tanggalnya berubah
     if (oldTransaction && oldTransaction.date !== transactionDate) {
       await invalidateTransactionCaches(req.user.id, oldTransaction.date);
     }
@@ -270,7 +270,7 @@ const updateTransaction = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] deleteTransaction dengan Invalidation
+// [MODIFIKASI] deleteTransaction (pastikan invalidation dipanggil)
 const deleteTransaction = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -310,7 +310,7 @@ const deleteTransaction = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] resetTransactions dengan Invalidation
+// [MODIFIKASI] resetTransactions (pastikan invalidation dipanggil)
 const resetTransactions = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -330,9 +330,10 @@ const resetTransactions = async (req, res) => {
       .update({ current_amount: 0 });
 
     if (redisClient.isOpen) {
-        const keys = await redisClient.keys(`*:${userId}*`); // Hapus semua cache user ini
+        // Hapus semua cache terkait user ini
+        const keys = await redisClient.keys(`*:${userId}*`); 
         if (keys.length > 0) {
-            await redisClient.del(...keys);
+            await redisClient.del(keys);
         }
     }
 
@@ -347,7 +348,7 @@ const resetTransactions = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] addFundsToSavings dengan Invalidation
+// [MODIFIKASI] addFundsToSavings (pastikan invalidation dipanggil)
 const addFundsToSavings = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token); 
@@ -375,6 +376,7 @@ const addFundsToSavings = async (req, res) => {
     res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
+
 
 module.exports = {
   getAllTransactions,

@@ -1,31 +1,30 @@
 // naanas/money-tracker-backend/controllers/accountController.js
 const createAuthClient = require('../utils/createAuthClient');
-const redisClient = require('../config/redisClient'); // Impor
+const redisClient = require('../config/redisClient');
 
-// [MODIFIKASI] getAccounts dengan Caching
+// [MODIFIKASI] getAccounts
 const getAccounts = async (req, res) => {
   const userId = req.user.id;
-  const cacheKey = `accounts:${userId}`; // Kunci ini sama dengan yang di analytics
+  const cacheKey = `accounts:${userId}`; 
 
   try {
-    // 1. Coba dari Cache
     if (redisClient.isOpen) {
       const cachedData = await redisClient.get(cacheKey);
       if (cachedData) {
-        return res.json({ success: true, data: cachedData, fromCache: true });
+        // [PERBAIKAN] Tambahkan JSON.parse
+        return res.json({ success: true, data: JSON.parse(cachedData), fromCache: true });
       }
     }
     
-    // 2. Query Supabase
     const supabaseAuth = createAuthClient(req.token);
     const { data: accountsWithBalance, error } = await supabaseAuth
       .rpc('get_accounts_with_balance');
     
     if (error) throw error;
 
-    // 3. Simpan di Cache
     if (redisClient.isOpen) {
-      await redisClient.set(cacheKey, accountsWithBalance, { ex: 3600 }); // 1 jam
+      // [PERBAIKAN] Tambahkan JSON.stringify
+      await redisClient.set(cacheKey, JSON.stringify(accountsWithBalance), { ex: 3600 });
     }
 
     res.json({ success: true, data: accountsWithBalance, fromCache: false });
@@ -39,7 +38,14 @@ const getAccounts = async (req, res) => {
 // [BARU] Helper invalidation
 const invalidateAccountCache = async (userId) => {
   if (redisClient.isOpen) {
-    await redisClient.del(`accounts:${userId}`);
+    // Hapus juga cache trends dan summary, karena saldo akun memengaruhinya
+    await redisClient.del([`accounts:${userId}`, `trends:${userId}`]);
+    
+    // Hapus semua cache summary
+    const summaryKeys = await redisClient.keys(`summary:${userId}:*`);
+    if(summaryKeys.length > 0) {
+        await redisClient.del(summaryKeys);
+    }
   }
 };
 
@@ -47,8 +53,8 @@ const invalidateAccountCache = async (userId) => {
 const createAccount = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
+    // ... (logic insert) ...
     const { name, type, initial_balance } = req.body;
-
     const { data: account, error } = await supabaseAuth
       .from('accounts')
       .insert({
@@ -60,8 +66,9 @@ const createAccount = async (req, res) => {
       .select()
       .single();
 
-    if (error) { /* ... (error handling) ... */
-      if (error.code === '23505') { 
+
+    if (error) {
+      if (error.code === '23505') {
         return res.status(409).json({ success: false, error: 'Anda sudah punya akun dengan nama ini.' });
       }
       throw error;
@@ -79,9 +86,9 @@ const createAccount = async (req, res) => {
 const updateAccount = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
+    // ... (logic update) ...
     const { id } = req.params;
     const { name, type, initial_balance } = req.body;
-
     const { data: account, error } = await supabaseAuth
       .from('accounts')
       .update({
@@ -93,7 +100,7 @@ const updateAccount = async (req, res) => {
       .select()
       .single();
 
-    if (error) { /* ... (error handling) ... */
+    if (error) {
          if (error.code === '23505') {
             return res.status(409).json({ success: false, error: 'Nama akun itu sudah dipakai.' });
         }
@@ -115,9 +122,8 @@ const updateAccount = async (req, res) => {
 const deleteAccount = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
+    // ... (logic delete) ...
     const { id } = req.params;
-
-    // ... (Cek transaksi)
     const { count, error: txError } = await supabaseAuth
       .from('transactions')
       .select('*', { count: 'exact', head: true })
@@ -126,7 +132,6 @@ const deleteAccount = async (req, res) => {
     if (count > 0) {
       return res.status(409).json({ success: false, error: `Tidak bisa hapus akun. Masih ada ${count} transaksi terkait.` });
     }
-    
     const { data: account, error } = await supabaseAuth
       .from('accounts')
       .delete()

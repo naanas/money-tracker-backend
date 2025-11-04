@@ -1,23 +1,22 @@
 // naanas/money-tracker-backend/controllers/categoryController.js
 const createAuthClient = require('../utils/createAuthClient');
-const redisClient = require('../config/redisClient'); // Impor
+const redisClient = require('../config/redisClient');
 
-// [MODIFIKASI] getAllCategories dengan Caching
+// [MODIFIKASI] getAllCategories
 const getAllCategories = async (req, res) => {
   const userId = req.user.id;
   const cacheKey = `categories:${userId}`;
-  const CACHE_TTL = 3600 * 6; // Cache 6 jam
+  const CACHE_TTL = 3600 * 6; // 6 jam
 
   try {
-    // 1. Coba dari Cache
     if (redisClient.isOpen) {
       const cachedData = await redisClient.get(cacheKey);
       if (cachedData) {
-        return res.json({ success: true, data: cachedData, fromCache: true });
+        // [PERBAIKAN] Tambahkan JSON.parse
+        return res.json({ success: true, data: JSON.parse(cachedData), fromCache: true });
       }
     }
     
-    // 2. Query Supabase
     const supabaseAuth = createAuthClient(req.token);
     const { data: categories, error } = await supabaseAuth
       .from('categories')
@@ -26,9 +25,9 @@ const getAllCategories = async (req, res) => {
       
     if (error) throw error;
     
-    // 3. Simpan di Cache
     if (redisClient.isOpen) {
-      await redisClient.set(cacheKey, categories, { ex: CACHE_TTL });
+      // [PERBAIKAN] Tambahkan JSON.stringify
+      await redisClient.set(cacheKey, JSON.stringify(categories), { EX: CACHE_TTL });
     }
 
     res.json({ success: true, data: categories, fromCache: false });
@@ -49,8 +48,8 @@ const invalidateCategoryCache = async (userId) => {
 const createCategory = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
+    // ... (logic insert) ...
     const { name, type, icon, color } = req.body;
-    
     const { data: category, error } = await supabaseAuth
       .from('categories')
       .insert([
@@ -65,7 +64,7 @@ const createCategory = async (req, res) => {
       .select()
       .single();
 
-    if (error) { /* ... (error handling) ... */
+    if (error) {
       if (error.code === '23505') { 
         return res.status(409).json({ success: false, error: 'Anda sudah memiliki kategori dengan nama dan tipe ini' });
       }
@@ -84,9 +83,9 @@ const createCategory = async (req, res) => {
 const updateCategory = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
+    // ... (logic update) ...
     const { id } = req.params;
     const { name, type, icon, color } = req.body;
-
     const { data, error } = await supabaseAuth
       .from('categories')
       .update({
@@ -100,7 +99,7 @@ const updateCategory = async (req, res) => {
       .select()
       .single();
 
-    if (error) { /* ... (error handling) ... */
+    if (error) {
       if (error.code === '23505') { 
         return res.status(409).json({ success: false, error: 'Anda sudah memiliki kategori lain dengan nama dan tipe ini' });
       }
@@ -123,9 +122,8 @@ const updateCategory = async (req, res) => {
 const deleteCategory = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
+    // ... (logic delete) ...
     const { id } = req.params; 
-
-    // ... (Cek transaksi) ...
     const { data: category, error: findError } = await supabaseAuth
       .from('categories')
       .select('name')
@@ -144,8 +142,6 @@ const deleteCategory = async (req, res) => {
     if (count > 0) {
       return res.status(409).json({ success: false, error: `Kategori tidak dapat dihapus karena masih digunakan oleh ${count} transaksi.` });
     }
-    // ... (Akhir cek)
-
     const { data, error } = await supabaseAuth
       .from('categories')
       .delete()
