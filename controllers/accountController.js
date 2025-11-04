@@ -1,21 +1,34 @@
+// naanas/money-tracker-backend/controllers/accountController.js
 const createAuthClient = require('../utils/createAuthClient');
-// const { SAVINGS_CATEGORY_NAME } = require('../utils/constants'); // Tidak dipakai lagi di file ini
+const redisClient = require('../config/redisClient'); // Impor
 
-// @desc    Get all accounts for a user
-// @route   GET /api/accounts
+// [MODIFIKASI] getAccounts dengan Caching
 const getAccounts = async (req, res) => {
+  const userId = req.user.id;
+  const cacheKey = `accounts:${userId}`; // Kunci ini sama dengan yang di analytics
+
   try {
-    const supabaseAuth = createAuthClient(req.token);
+    // 1. Coba dari Cache
+    if (redisClient.isOpen) {
+      const cachedData = await redisClient.get(cacheKey);
+      if (cachedData) {
+        return res.json({ success: true, data: cachedData, fromCache: true });
+      }
+    }
     
-    // 1. Panggil fungsi RPC 'get_accounts_with_balance'
-    // Perhitungan saldo 100% terjadi di database.
+    // 2. Query Supabase
+    const supabaseAuth = createAuthClient(req.token);
     const { data: accountsWithBalance, error } = await supabaseAuth
       .rpc('get_accounts_with_balance');
     
     if (error) throw error;
 
-    // 2. Langsung kirim hasilnya
-    res.json({ success: true, data: accountsWithBalance });
+    // 3. Simpan di Cache
+    if (redisClient.isOpen) {
+      await redisClient.set(cacheKey, accountsWithBalance, { ex: 3600 }); // 1 jam
+    }
+
+    res.json({ success: true, data: accountsWithBalance, fromCache: false });
     
   } catch (error) {
     console.error('Get accounts error:', error);
@@ -23,10 +36,15 @@ const getAccounts = async (req, res) => {
   }
 };
 
-// @desc    Create a new account
-// @route   POST /api/accounts
+// [BARU] Helper invalidation
+const invalidateAccountCache = async (userId) => {
+  if (redisClient.isOpen) {
+    await redisClient.del(`accounts:${userId}`);
+  }
+};
+
+// [MODIFIKASI] createAccount
 const createAccount = async (req, res) => {
-  // ... (Fungsi ini tidak berubah)
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { name, type, initial_balance } = req.body;
@@ -42,13 +60,14 @@ const createAccount = async (req, res) => {
       .select()
       .single();
 
-    if (error) {
-      if (error.code === '23505') { // Unique constraint violation
+    if (error) { /* ... (error handling) ... */
+      if (error.code === '23505') { 
         return res.status(409).json({ success: false, error: 'Anda sudah punya akun dengan nama ini.' });
       }
       throw error;
     }
     
+    await invalidateAccountCache(req.user.id); // Invalidate
     res.status(201).json({ success: true, data: account });
   } catch (error) {
     console.error('Create account error:', error);
@@ -56,10 +75,8 @@ const createAccount = async (req, res) => {
   }
 };
 
-// @desc    Update an account
-// @route   PUT /api/accounts/:id
+// [MODIFIKASI] updateAccount
 const updateAccount = async (req, res) => {
-  // ... (Fungsi ini tidak berubah)
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params;
@@ -72,21 +89,21 @@ const updateAccount = async (req, res) => {
         type,
         initial_balance: parseFloat(initial_balance) || 0
       })
-      .eq('id', id) // RLS handles user_id
+      .eq('id', id)
       .select()
       .single();
 
-    if (error) {
+    if (error) { /* ... (error handling) ... */
          if (error.code === '23505') {
             return res.status(409).json({ success: false, error: 'Nama akun itu sudah dipakai.' });
         }
         throw error;
     }
-
     if (!account) {
       return res.status(404).json({ success: false, error: 'Akun tidak ditemukan' });
     }
 
+    await invalidateAccountCache(req.user.id); // Invalidate
     res.json({ success: true, data: account });
   } catch (error) {
     console.error('Update account error:', error);
@@ -94,40 +111,35 @@ const updateAccount = async (req, res) => {
   }
 };
 
-// @desc    Delete an account
-// @route   DELETE /api/accounts/:id
+// [MODIFIKASI] deleteAccount
 const deleteAccount = async (req, res) => {
-  // ... (Fungsi ini tidak berubah)
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params;
 
-    // Cek apakah akun masih dipakai di transaksi
+    // ... (Cek transaksi)
     const { count, error: txError } = await supabaseAuth
       .from('transactions')
       .select('*', { count: 'exact', head: true })
       .or(`account_id.eq.${id},destination_account_id.eq.${id}`);
-
     if (txError) throw txError;
-    
     if (count > 0) {
       return res.status(409).json({ success: false, error: `Tidak bisa hapus akun. Masih ada ${count} transaksi terkait.` });
     }
     
-    // Hapus akun
     const { data: account, error } = await supabaseAuth
       .from('accounts')
       .delete()
-      .eq('id', id) // RLS handles user_id
+      .eq('id', id)
       .select()
       .single();
 
     if (error) throw error;
-
     if (!account) {
-      return res.status(4404).json({ success: false, error: 'Akun tidak ditemukan' });
+      return res.status(404).json({ success: false, error: 'Akun tidak ditemukan' });
     }
 
+    await invalidateAccountCache(req.user.id); // Invalidate
     res.json({ success: true, message: 'Akun berhasil dihapus' });
   } catch (error) {
     console.error('Delete account error:', error);
