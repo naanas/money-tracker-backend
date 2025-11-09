@@ -7,7 +7,7 @@ const getAllCategories = async (req, res) => {
   const userId = req.user.id;
   // Cache key harus unik per user agar tidak tercampur!
   const cacheKey = `categories:${userId}`;
-  const CACHE_TTL = 3600 * 6; // 6 jam
+  const CACHE_TTL = 60; // 1 menit
 
   try {
     if (redisClient.isOpen) {
