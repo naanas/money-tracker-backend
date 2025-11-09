@@ -1,16 +1,19 @@
 // naanas/money-tracker-backend/controllers/budgetController.js
 
 const createAuthClient = require('../utils/createAuthClient');
-const redisClient = require('../config/redisClient');
+const redisClient = require('../config/redisClient'); // <-- BARU: Impor redisClient
 
-// Helper untuk invalidasi cache
+// [BARU] Helper untuk invalidation
 const invalidateBudgetCaches = async (userId, month, year) => {
   if (!redisClient.isOpen) return;
+  
+  // Kunci cache yang harus dihapus adalah 'summary'
   const cacheKey = `summary:${userId}:${year}-${month}`;
+  
   try {
     await redisClient.del(cacheKey);
   } catch (err) {
-    console.error("Gagal menghapus cache budget:", err);
+    console.error("Gagal menghapus cache budget (summary):", err);
   }
 };
 
@@ -18,16 +21,22 @@ const getBudgets = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { month, year } = req.query;
-    let query = supabaseAuth.from('budgets').select('*');
+    
+    let query = supabaseAuth
+      .from('budgets')
+      .select('*');
+
     if (month && year) {
       query = query.eq('month', parseInt(month)).eq('year', parseInt(year));
     }
     const { data: budgets, error } = await query;
-    if (error) throw error;
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
     res.json({ success: true, data: budgets });
   } catch (error) {
-    console.error('Budgets fetch error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Budgets fetch error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
@@ -35,96 +44,134 @@ const createOrUpdateBudget = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { amount, month, year, category_name } = req.body;
-    const userId = req.user.id;
+    
     const finalAmount = parseFloat(amount) || 0;
 
-    // 1. Hapus SEMUA yang cocok (membersihkan duplikat jika ada)
-    const { error: deleteError } = await supabaseAuth
+    const { data: existingBudget } = await supabaseAuth
       .from('budgets')
-      .delete()
-      .match({
-         user_id: userId,
-         month: parseInt(month),
-         year: parseInt(year),
-         category_name: category_name
-      });
+      .select('id')
+      .eq('month', parseInt(month))
+      .eq('year', parseInt(year))
+      .eq('category_name', category_name)
+      .single();
 
-    if (deleteError) throw deleteError;
+    let result;
+    let message = 'Budget is 0, no entry created or updated.'; 
 
-    // 2. Buat baru jika amount > 0
-    let newData = null;
-    let message = 'Budget direset ke 0';
-
-    if (finalAmount > 0) {
-        const { data: insertData, error: insertError } = await supabaseAuth
+    // [MODIFIKASI] Logika baru untuk DELETE, UPDATE, atau CREATE
+    if (existingBudget && finalAmount === 0) { 
+      // Kasus 1: Budget sudah ada dan di-reset ke 0 -> Hapus
+      result = await supabaseAuth
         .from('budgets')
-        .insert([{
-            user_id: userId,
+        .delete()
+        .eq('id', existingBudget.id)
+        .select()
+        .single();
+      message = 'Budget reset successfully';
+    } else if (existingBudget && finalAmount > 0) {
+      // Kasus 2: Budget sudah ada dan di-update
+      result = await supabaseAuth
+        .from('budgets')
+        .update({
+          amount: finalAmount,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingBudget.id)
+        .select()
+        .single();
+      message = 'Budget updated successfully';
+    } else if (!existingBudget && finalAmount > 0) {
+      // Kasus 3: Budget belum ada dan di-create
+      result = await supabaseAuth
+        .from('budgets')
+        .insert([
+          {
+            user_id: req.user.id, 
             amount: finalAmount,
             month: parseInt(month),
             year: parseInt(year),
             category_name: category_name
-        }])
+          }
+        ])
         .select()
         .single();
-
-        if (insertError) throw insertError;
-        newData = insertData;
-        message = 'Budget berhasil disimpan';
+      message = 'Budget created successfully';
+    } else {
+      // Kasus 4: Budget belum ada dan amount-nya 0 (Tidak ada yang dilakukan)
+      return res.status(200).json({
+        success: true,
+        message: message,
+        data: null
+      });
     }
 
-    await invalidateBudgetCaches(userId, parseInt(month), parseInt(year));
-    res.json({ success: true, message, data: newData });
+    if (result.error) {
+      return res.status(500).json({ success: false, error: result.error.message });
+    }
 
+    // <-- INI PERBAIKANNYA -->
+    // Panggil invalidation cache setelah database berhasil diubah
+    await invalidateBudgetCaches(req.user.id, parseInt(month), parseInt(year));
+    // <-- AKHIR PERBAIKAN -->
+
+    res.status(message.includes('created') ? 201 : 200).json({
+      success: true,
+      message: message,
+      data: result.data
+    });
   } catch (error) {
-    console.error('Budget upsert error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Budget creation error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
-// === [PERBAIKAN TOTAL PADA DELETE] ===
+// <-- [PERBAIKAN] Fungsi deleteBudget diubah total -->
 const deleteBudget = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params; 
 
-    // 1. Cari tahu dulu budget ini milik kategori/bulan/tahun apa
-    // Kita pakai .limit(1) biar nggak error kalau ID-nya aneh, meski seharusnya ID unik.
-    const { data: targetBudgets, error: findError } = await supabaseAuth
+    // 1. Ambil data budget (termasuk month, year, user_id) SEBELUM dihapus
+    const { data: budgetToDelete, error: findError } = await supabaseAuth
       .from('budgets')
-      .select('user_id, month, year, category_name')
+      .select('id, user_id, month, year') // Ambil detail untuk invalidation
       .eq('id', id)
-      .limit(1);
+      .single();
 
-    if (findError || !targetBudgets || targetBudgets.length === 0) {
-      return res.status(404).json({ success: false, error: 'Budget tidak ditemukan' });
+    if (findError || !budgetToDelete) {
+      return res.status(404).json({
+        success: false,
+        error: 'Budget not found or user not authorized'
+      });
     }
 
-    const target = targetBudgets[0];
-
-    // 2. HAPUS TOTAL berdasarkan Kategori + Bulan + Tahun + User
-    // Ini akan menghapus item yang dimaksud DAN kembarannya jika ada.
+    // 2. Lakukan proses hapus
     const { error: deleteError } = await supabaseAuth
       .from('budgets')
       .delete()
-      .match({
-        user_id: target.user_id,
-        month: target.month,
-        year: target.year,
-        category_name: target.category_name
-      });
+      .eq('id', id);
 
-    if (deleteError) throw deleteError;
+    if (deleteError) {
+      return res.status(500).json({ success: false, error: deleteError.message });
+    }
     
-    // 3. Bersihkan cache
-    await invalidateBudgetCaches(target.user_id, target.month, target.year);
+    // 3. Panggil invalidation menggunakan data yang tadi diambil
+    await invalidateBudgetCaches(budgetToDelete.user_id, budgetToDelete.month, budgetToDelete.year);
 
-    res.json({ success: true, message: 'Budget berhasil dihapus total' });
+    res.json({
+      success: true,
+      message: `Budget pocket deleted successfully`
+    });
+
   } catch (error) {
-    console.error('Budget deletion error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Budget deletion error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
   }
 };
+// <-- AKHIR PERBAIKAN -->
 
 module.exports = {
   getBudgets,
