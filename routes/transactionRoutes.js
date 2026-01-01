@@ -2,13 +2,13 @@ const express = require('express');
 const { 
   getAllTransactions, 
   createTransaction, 
-  createTransfer, // [BARU]
-  updateTransaction, 
+  createTransfer, 
+  updateTransaction, // <-- Ini sudah diimpor
   deleteTransaction,
   resetTransactions 
 } = require('../controllers/transactionController');
+
 const { authenticateUser } = require('../middleware/authMiddleware');
-// [MODIFIKASI] Impor validator baru
 const { 
   validateTransaction, 
   validateTransfer 
@@ -18,15 +18,21 @@ const router = express.Router();
 
 router.use(authenticateUser);
 
+// GET & POST Transactions
 router.get('/', getAllTransactions);
 router.post('/', validateTransaction, createTransaction);
 
-// [BARU] Rute untuk transfer
+// Transfer
 router.post('/transfer', validateTransfer, createTransfer);
 
+// Reset
 router.delete('/reset', resetTransactions);
 
+// === [BAGIAN YANG ERROR TADI SUDAH DIPERBAIKI] ===
+// Hapus 'transactionController.' cukup panggil 'updateTransaction' saja
 router.put('/:id', validateTransaction, updateTransaction);
+
+// Delete
 router.delete('/:id', deleteTransaction);
 
 module.exports = router;

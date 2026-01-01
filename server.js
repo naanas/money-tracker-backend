@@ -20,25 +20,19 @@ const accountRoutes = require('./routes/accountRoutes');
 const app = express();
 
 const corsOptions = {
-  origin: environment.clientUrl,
+  origin: environment.clientUrl || 'http://localhost:5173', // Fallback agar aman
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
 app.use(cors(corsOptions));
-
-
 app.options('*', cors(corsOptions));
-
-
-
 
 // Middleware lain
 app.use(helmet());
 app.use(compression());
 app.use(generalLimiter);
-
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -78,5 +72,14 @@ app.use('/api/accounts', accountRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
+// === [BAGIAN INI YANG DITAMBAHKAN] ===
+// Agar server berjalan saat dijalankan dengan `node server.js` atau `npm run dev`
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`✅ Server running on port ${PORT}`);
+    console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+}
 
 module.exports = app;

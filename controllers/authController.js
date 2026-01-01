@@ -1,5 +1,7 @@
 const supabase = require('../config/database');
-const createAuthClient = require('../utils/createAuthClient'); // <-- BARU
+const createAuthClient = require('../utils/createAuthClient');
+// [BARU] Import createClient untuk membuat admin instance
+const { createClient } = require('@supabase/supabase-js');
 
 const register = async (req, res) => {
   try {
@@ -12,46 +14,55 @@ const register = async (req, res) => {
       });
     }
 
+    // 1. Buat User Auth (tetap pakai client biasa)
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
     });
 
     if (authError) {
-      // Jika user sudah ada di auth, Supabase akan kirim error
       return res.status(400).json({
         success: false,
         error: authError.message
       });
     }
 
-    // Create user profile
+    // 2. Buat User Profile
     if (authData.user) {
       
-      // === [PERBAIKAN DI SINI] ===
-      // Kita ubah dari .insert() menjadi .upsert()
-      // Ini akan meng-handle kasus jika email sudah ada di tabel 'users'
-      // tapi tidak ada di 'auth.users' (kasus orphaned profile)
+      // === [PERBAIKAN UTAMA DI SINI] ===
+      // Kita membuat client "Admin" khusus yang punya akses penuh (bypass RLS)
+      // Ini WAJIB karena user baru belum punya hak akses untuk tulis ke tabel 'users'
       
-      const { error: profileError } = await supabase
+      const supabaseAdmin = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY, // Pastikan key ini ada di .env backend!
+        {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false
+          }
+        }
+      );
+
+      // Gunakan supabaseAdmin (bukan supabase biasa) untuk menulis ke database
+      const { error: profileError } = await supabaseAdmin
         .from('users')
         .upsert(
           {
-            id: authData.user.id, // ID baru dari auth
+            id: authData.user.id,
             email: authData.user.email,
             full_name: full_name || '',
             subscription_tier: 'free'
           },
           {
-            onConflict: 'email' // Jika email konflik, update saja row itu
+            onConflict: 'email'
           }
         );
       // === [AKHIR PERBAIKAN] ===
 
       if (profileError) {
         console.error('Profile creation/upsert error:', profileError);
-        // Jika errornya BUKAN karena duplikat, tampilkan error
-        // (Meskipun upsert seharusnya sudah menangani error duplikat)
         return res.status(400).json({
             success: false,
             error: `User auth created, but profile operation failed: ${profileError.message}`
@@ -123,10 +134,9 @@ const login = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] Gunakan createAuthClient untuk fetch profile
 const getProfile = async (req, res) => {
   try {
-    const supabaseAuth = createAuthClient(req.token); // <-- Menggunakan client terautentikasi
+    const supabaseAuth = createAuthClient(req.token);
     
     const { data: user, error } = await supabaseAuth
       .from('users')

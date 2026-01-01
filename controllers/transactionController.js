@@ -1,9 +1,8 @@
-// naanas/money-tracker-backend/controllers/transactionController.js
 const createAuthClient = require('../utils/createAuthClient');
 const { SAVINGS_CATEGORY_NAME } = require('../utils/constants'); 
 const redisClient = require('../config/redisClient');
 
-// [PERBAIKAN] Helper untuk invalidation
+// [HELPER] Invalidation Cache
 const invalidateTransactionCaches = async (userId, transactionDate) => {
   if (!redisClient.isOpen) return;
   
@@ -11,15 +10,13 @@ const invalidateTransactionCaches = async (userId, transactionDate) => {
   const month = date.getMonth() + 1;
   const year = date.getFullYear();
 
-  // Kunci spesifik yang pasti terpengaruh
   const keysToDel = [
     `accounts:${userId}`,
     `trends:${userId}`,
     `summary:${userId}:${year}-${month}`,
-    `savings:${userId}` // Tambahkan ini
+    `savings:${userId}` 
   ];
   
-  // Hapus cache bulan sebelumnya jika perlu
   if (date.getDate() < 3) {
     const prevMonthDate = new Date(year, month - 2, 1);
     const prevMonth = prevMonthDate.getMonth() + 1;
@@ -28,44 +25,37 @@ const invalidateTransactionCaches = async (userId, transactionDate) => {
   }
   
   try {
-    // Hapus kunci spesifik
-    if (keysToDel.length > 0) {
-      await redisClient.del(keysToDel);
-    }
+    if (keysToDel.length > 0) await redisClient.del(keysToDel);
     
-    // Hapus cache list transaksi (menggunakan scan)
+    // Scan & delete transaction lists
     const transactionKeys = await redisClient.keys(`transactions:${userId}:*`);
-    if (transactionKeys.length > 0) {
-      await redisClient.del(transactionKeys);
-    }
+    if (transactionKeys.length > 0) await redisClient.del(transactionKeys);
   } catch (err) {
     console.error("Gagal menghapus cache:", err);
   }
 };
 
-// [MODIFIKASI] getAllTransactions
 const getAllTransactions = async (req, res) => {
   const userId = req.user.id;
   const { page = 1, limit = 50, type, category, month, year, account_id } = req.query; 
 
   const queryParams = [page, limit, type, category, month, year, account_id].join('-');
   const cacheKey = `transactions:${userId}:${queryParams}`;
-  const CACHE_TTL_LIST = 600; // 10 menit
+  const CACHE_TTL_LIST = 600; 
 
   try {
     if (redisClient.isOpen) {
       const cachedData = await redisClient.get(cacheKey);
       if (cachedData) {
-        // [PERBAIKAN] Tambahkan JSON.parse
         return res.json({ success: true, data: JSON.parse(cachedData), fromCache: true });
       }
     }
 
     const supabaseAuth = createAuthClient(req.token);
-    // ... (Logika query Supabase tetap sama) ...
     const effectiveLimit = Math.min(parseInt(limit) || 50, 100);
     const effectivePage = parseInt(page) || 1;
     const startIndex = (effectivePage - 1) * effectiveLimit;
+    
     let query = supabaseAuth
       .from('transactions')
       .select(`
@@ -75,21 +65,21 @@ const getAllTransactions = async (req, res) => {
       `)
       .order('date', { ascending: false })
       .range(startIndex, startIndex + effectiveLimit - 1);
+
     if (type) query = query.eq('type', type);
     if (category) query = query.eq('category', category);
-    if (account_id) {
-        query = query.or(`account_id.eq.${account_id},destination_account_id.eq.${account_id}`);
-    }
+    if (account_id) query = query.or(`account_id.eq.${account_id},destination_account_id.eq.${account_id}`);
+    
     if (month && year) {
       const startDate = new Date(year, month - 1, 1);
       const endDate = new Date(year, month, 0);
       query = query.gte('date', startDate.toISOString()).lte('date', endDate.toISOString());
     }
+
     const { data: transactions, error, count } = await query;
-    // ... (Akhir logika query) ...
 
     if (error) {
-      console.error('Supabase query error in getAllTransactions:', error);
+      console.error('Supabase query error:', error);
       return res.status(500).json({ success: false, error: error.message });
     }
 
@@ -104,27 +94,16 @@ const getAllTransactions = async (req, res) => {
     };
     
     if (redisClient.isOpen) {
-      // [PERBAIKAN] Tambahkan JSON.stringify
       await redisClient.set(cacheKey, JSON.stringify(responseData), { EX: CACHE_TTL_LIST });
     }
 
-    res.json({
-      success: true,
-      data: responseData,
-      fromCache: false
-    });
+    res.json({ success: true, data: responseData, fromCache: false });
   } catch (error) {
     console.error('Transactions fetch error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
-// ... (Fungsi createTransaction, createTransfer, update, delete, reset, addFundsToSavings) ...
-// Semuanya sudah benar karena MEREKA HANYA MENGHAPUS CACHE (invalidateTransactionCaches)
-// dan tidak melakukan .get() or .set()
-// Jadi, tidak perlu diubah.
-
-// [MODIFIKASI] createTransaction (pastikan invalidation dipanggil)
 const createTransaction = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -133,8 +112,7 @@ const createTransaction = async (req, res) => {
 
     const { data: transaction, error } = await supabaseAuth
       .from('transactions')
-      .insert([
-        {
+      .insert([{
           user_id: req.user.id, 
           amount: parseFloat(amount),
           category,
@@ -143,14 +121,11 @@ const createTransaction = async (req, res) => {
           date: transactionDate,
           receipt_url: receipt_url || null,
           account_id: account_id 
-        }
-      ])
+      }])
       .select()
       .single();
 
-    if (error) {
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    if (error) return res.status(500).json({ success: false, error: error.message });
     
     await invalidateTransactionCaches(req.user.id, transactionDate);
 
@@ -165,7 +140,6 @@ const createTransaction = async (req, res) => {
   }
 };
 
-// [MODIFIKASI] createTransfer (pastikan invalidation dipanggil)
 const createTransfer = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -177,7 +151,6 @@ const createTransfer = async (req, res) => {
     const { data, error } = await supabaseAuth
       .from('transactions')
       .insert([
-        // ... (insert logic)
         {
           user_id: userId,
           amount: parsedAmount,
@@ -201,61 +174,82 @@ const createTransfer = async (req, res) => {
       ])
       .select();
     
-    if (error) {
-        return res.status(500).json({ success: false, error: error.message });
-    }
+    if (error) return res.status(500).json({ success: false, error: error.message });
 
     await invalidateTransactionCaches(userId, transactionDate);
 
-    res.status(201).json({
-        success: true,
-        message: 'Transfer created successfully',
-        data: data
-      });
-
+    res.status(201).json({ success: true, message: 'Transfer created successfully', data: data });
   } catch (error) {
     console.error('Transfer creation error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
-// [MODIFIKASI] updateTransaction (pastikan invalidation dipanggil)
+// [PERBAIKAN] updateTransaction
+// Hapus logika manual saldo karena Trigger Database sudah mengurusnya otomatis
 const updateTransaction = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
     const { id } = req.params;
-    const updates = req.body;
     
-    delete updates.user_id;
-    const transactionDate = updates.date || new Date().toISOString();
+    // 1. Ambil HANYA field yang diizinkan (Whitelist)
+    const { 
+      amount, 
+      category, 
+      description, 
+      type, 
+      date, 
+      receipt_url, 
+      account_id 
+    } = req.body;
 
-    // Ambil tanggal lama sebelum update
+    // 2. Validasi Angka
+    if (amount !== undefined && isNaN(parseFloat(amount))) {
+       return res.status(400).json({ success: false, error: 'Amount harus berupa angka' });
+    }
+
+    // 3. Susun objek update yang bersih
+    const updates = {};
+    if (amount !== undefined) updates.amount = parseFloat(amount);
+    if (category !== undefined) updates.category = category;
+    if (description !== undefined) updates.description = description;
+    if (type !== undefined) updates.type = type;
+    if (date !== undefined) updates.date = date;
+    if (receipt_url !== undefined) updates.receipt_url = receipt_url;
+    if (account_id !== undefined) updates.account_id = account_id;
+    
+    updates.updated_at = new Date().toISOString();
+
+    // 4. Ambil tanggal lama (untuk invalidasi cache)
     const { data: oldTransaction, error: findError } = await supabaseAuth
       .from('transactions')
       .select('date')
       .eq('id', id)
       .single();
-    if (findError) throw findError;
 
+    if (findError) {
+       return res.status(404).json({ success: false, error: 'Transaction not found' });
+    }
+
+    // 5. Lakukan Update
+    // Trigger di Supabase akan otomatis mendeteksi perubahan amount/type/account_id dan menyesuaikan saldo.
     const { data: transaction, error } = await supabaseAuth
       .from('transactions')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString()
-      })
+      .update(updates) 
       .eq('id', id)
       .select()
       .single();
 
     if (error) {
+      console.error('Supabase Update Error:', error); 
       return res.status(500).json({ success: false, error: error.message });
     }
-    if (!transaction) {
-      return res.status(404).json({ success: false, error: 'Transaction not found' });
-    }
 
+    // 6. Invalidate Cache
+    const transactionDate = updates.date || oldTransaction.date;
     await invalidateTransactionCaches(req.user.id, transactionDate);
-    if (oldTransaction && oldTransaction.date !== transactionDate) {
+    
+    if (oldTransaction.date && transactionDate !== oldTransaction.date) {
       await invalidateTransactionCaches(req.user.id, oldTransaction.date);
     }
 
@@ -264,13 +258,13 @@ const updateTransaction = async (req, res) => {
       message: 'Transaction updated successfully',
       data: transaction
     });
+
   } catch (error) {
     console.error('Transaction update error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error' });
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
 
-// [MODIFIKASI] deleteTransaction (pastikan invalidation dipanggil)
 const deleteTransaction = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -283,10 +277,7 @@ const deleteTransaction = async (req, res) => {
       .single();
 
     if (findError || !transaction) {
-      return res.status(404).json({
-        success: false,
-        error: 'Transaction not found or user not authorized'
-      });
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
     }
 
     const { error } = await supabaseAuth
@@ -294,23 +285,17 @@ const deleteTransaction = async (req, res) => {
       .delete()
       .eq('id', id);
 
-    if (error) {
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    if (error) return res.status(500).json({ success: false, error: error.message });
 
     await invalidateTransactionCaches(req.user.id, transaction.date);
 
-    res.json({
-      success: true,
-      message: 'Transaction deleted successfully'
-    });
+    res.json({ success: true, message: 'Transaction deleted successfully' });
   } catch (error) {
     console.error('Transaction deletion error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
-// [MODIFIKASI] resetTransactions (pastikan invalidation dipanggil)
 const resetTransactions = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token);
@@ -321,43 +306,29 @@ const resetTransactions = async (req, res) => {
       .delete()
       .neq('id', '00000000-0000-0000-0000-000000000000'); 
 
-    if (error) {
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    if (error) return res.status(500).json({ success: false, error: error.message });
     
-    await supabaseAuth
-      .from('savings_goals')
-      .update({ current_amount: 0 });
+    await supabaseAuth.from('savings_goals').update({ current_amount: 0 });
 
     if (redisClient.isOpen) {
-        // Hapus semua cache terkait user ini
         const keys = await redisClient.keys(`*:${userId}*`); 
-        if (keys.length > 0) {
-            await redisClient.del(keys);
-        }
+        if (keys.length > 0) await redisClient.del(keys);
     }
 
-    res.json({
-      success: true,
-      message: 'All transactions and savings progress have been reset.'
-    });
-
+    res.json({ success: true, message: 'Reset successful.' });
   } catch (error) {
     console.error('Transaction reset error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
-// [MODIFIKASI] addFundsToSavings (pastikan invalidation dipanggil)
 const addFundsToSavings = async (req, res) => {
   try {
     const supabaseAuth = createAuthClient(req.token); 
     const { goal_id, amount, date, account_id } = req.body;
     const transactionDate = date || new Date().toISOString().split('T')[0];
 
-    if (!account_id) {
-      return res.status(400).json({ success: false, error: 'Akun sumber (account_id) harus diisi' });
-    }
+    if (!account_id) return res.status(400).json({ success: false, error: 'Akun sumber wajib diisi' });
 
     const { error } = await supabaseAuth.rpc('add_to_savings_from_account', {
       goal_id_input: goal_id,
@@ -376,7 +347,6 @@ const addFundsToSavings = async (req, res) => {
     res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 };
-
 
 module.exports = {
   getAllTransactions,
